@@ -1,0 +1,159 @@
+.\" Copyright © 2000 Ben Collins <bcollins@debian.org>
+.\" Copyright © 2014-2016 Guillem Jover <guillem@debian.org>
+.\"
+.\" Covered under the GPL v2
+.\"
+.TH debsig\-verify 1 "%RELEASE_DATE%" "%PACKAGE_VERSION%" "dpkg suite"
+.SH NAME
+debsig\-verify \- Verify signatures for a Debian format package
+.SH SYNOPSIS
+.B debsig\-verify
+.RI [ option "...] " deb
+.SH DESCRIPTION
+This program is part of a security model that verifies the source and
+validity of a Debian format package (commonly referred to as a \fIdeb\fR).
+.PP
+This program implements the verification specs defined in the document,
+"\fBPackage Verification with dpkg: Implementation\fR",
+which is a more complete reference for the verification procedure.
+.PP
+The program generally takes one argument, the \fIdeb\fR file to be
+verified. It will then check the \fBorigin\fR signature of the \fIdeb\fR,
+find its Public Key ID (long format), and use that as the name for a policy
+subdirectory. If this subdirectory does not exist, then the verification
+fails immediately.
+.PP
+In this subdirectory, the program finds one or more files named with
+the \fB.pol\fR file extension, which signifies an XML format policy
+definition. This file contains three main parts.
+.PP
+.TP
+.BR Origin
+Information about the origin of this policy.
+.TP
+.BR Selection
+Rules used to decide if this policy is pertinent to this \fIdeb\fR's
+verification.
+.TP
+.BR Verification
+Rules that are used to actually verify the \fIdeb\fR.
+.PP
+The policy files will reference keyrings by a filename. These keyrings
+will be looked for in a subdirectory of the keyring directory. The
+subdirectory has the same name as the policy subdirectory (previously
+determined by the Origin's Public Key ID).
+.PP
+The program will, after first parsing the entire file, check the Origin
+ID against the Public Key ID of the \fBorigin\fR signature in the \fIdeb\fR.
+If these match (which they should, else something is really wrong), then
+it will proceed to the \fBSelection\fR rules.
+.PP
+The \fBSelection\fR rules decide whether this policy is suitable for
+verifying this \fIdeb\fR. If these rules fail, then the program will proceed
+to the next policy. If it passes, then the program commits to using this
+policy for verification, and no other policies will be referenced.
+.PP
+The last verification step relies on the \fBVerification\fR rules. These
+are similar in format to the \fBSelection\fR rules, but are usually more
+constrained. If these rules fail, the program exits with a non-zero
+status. If they pass, then it exits with a zero status.
+.SH OPTIONS
+.TP
+.BR \-q ", " \-\-quiet
+Causes the program to send no output, other than fatal errors. This is
+useful when being called from another program, where you rely on the exit
+value only.
+.TP
+.BR \-v ", " \-\-verbose
+Causes the program to send more output on execution, so as to follow the
+steps it is taking while trying to verify the \fIdeb\fR.
+.TP
+.BR \-d ", " \-\-debug
+Outputs even more info than the \fB\-v\fR option. This is mainly for
+debugging.
+.TP
+.BR \-\-help
+Outputs the usage information for the program.
+.TP
+.BR \-\-version
+Outputs the version information for the program. This includes the policy
+format version. This option does not require any other arguments.
+.TP
+.BR \-\-list\-policies
+Outputs a list of the policies that passed the \fBSelection\fR phase of
+the verification process. In other words, those that could potentially
+verify the \fIdeb\fR. The output is one line showing the directory selected
+by the \fBorigin\fR signature, and then a single line for any policy files
+in that directory that pass the \fBSelection\fR rules. This option will \fBNOT\fR
+verify the \fIdeb\fR.
+.TP
+.BR \-\-use\-policy " \fIpolicy\fP"
+This option takes one argument, which is the name of the
+policy file (as shown by the \fB\-\-list\-policies\fR option). Note, this is
+just a file, and not a full path. You cannot specify arbitrary policies.
+This option is useful if more than one policy applies to potentially
+verifying the \fIdeb\fR. The program will then use this policy, and only
+this policy, to try and verify the \fIdeb\fR.
+.TP
+.BR \-\-policies\-dir " \fIdirectory\fP"
+Use a different directory when looking up for policies.
+.TP
+.BR \-\-keyrings\-dir " \fIdirectory\fP"
+Use a different directory when looking up for keyrings.
+.TP
+.BR \-\-root " \fIdirectory\fP"
+Use a different root directory when looking up for policies and keyrings.
+.SH EXIT STATUS
+.TP
+.B 0
+The requested operation completed successfully.
+.TP
+.B 1
+General non-success exit value. This occurs for non-verification
+operations.
+.TP
+.B 10
+Either no signatures are contained in the \fBdeb\fR or no \fBorigin\fR
+signature was found.
+.TP
+.B 11
+An \fBorigin\fR signature was found, but it does not have a corresponding
+subdirectory in the policies directory.
+.TP
+.B 12
+The \fBorigin\fR was found, and is present. However, no policies were
+found that passed the selection phase of the process. Thus, no
+verification was performed.
+.TP
+.B 13
+The package failed the verification phase of the process. More than
+likely, this occurs due to a bad signature, or because not all criteria of
+the verification block of the policy were passed.
+.TP
+.B 14
+An internal error occurred. This is an unrecoverable error. Either the
+\fBdeb\fR is corrupt, gpg failed abnormally, or some other uncontrollable
+failure.
+.SH ENVIRONMENT
+.TP
+.B DEBSIG_GNUPG_PROGRAM
+The name (or pathname) of the GnuPG program to use.
+.SH FILES
+.TP
+.I @POLICIES_DIR@/
+Directory containing the policy (.pol) definitions.
+.TP
+.I @POLICIES_DIR@/*/*.pol
+XML format policy files.
+.TP
+.I @KEYRINGS_DIR@/
+Directory containing the keyrings that coincide with the policies.
+.TP
+.I @KEYRINGS_DIR@/*/*.gpg
+GnuPG format keyrings for use by the policies.
+.SH SEE ALSO
+.BR debsigs (1),
+.BR gpg (1),
+.BR deb (5).
+.SH AUTHOR
+Ben Collins <bcollins@debian.org>

@@ -1,0 +1,276 @@
+debsig-verify (0.19) unstable; urgency=medium
+
+  * Update Vcs information to point to new hosting.
+  * Allocate pathname buffers dynamically to avoid possible silent truncation.
+  * Build system:
+    - Detect compiler flags availability at build-time.
+  * Packaging:
+    - Namespace debhelper files with package names.
+    - Bump Standard-Version to 4.1.5 (no changes needed).
+    - Move debhelper command arguments into fragment files.
+    - Install all test policies into keyid example directories.
+
+ -- Guillem Jover <guillem@debian.org>  Thu, 05 Jul 2018 12:50:11 +0200
+
+debsig-verify (0.18) unstable; urgency=medium
+
+  * Pass --no-auto-check-trustdb to the gpg invocations.
+  * Add gpg as a alternative dependencies to gnupg, and gpg-agent or
+    gnupg-agent as new Build-Depends, now that the package has been split
+    in a more fine-grained way.
+  * Use UTC0 instead of UTC when setting TZ.
+  * Bump Standard-Version to 4.1.1 (no changes needed).
+  * Add autopkgtest using the upstream test suite.
+  * Set Rules-Requires-Root to no.
+  * Set distribution tarball format to ustar.
+
+ -- Guillem Jover <guillem@debian.org>  Sun, 05 Nov 2017 23:46:13 +0100
+
+debsig-verify (0.17) unstable; urgency=medium
+
+  * Spelling fixes. Thanks to Josh Soref <jsoref@gmail.com>.
+  * Switch from libxmltok (expat 1.x) to libexpat (expat 2.x). The latter
+    package is slightly bigger, but that is offset by being used by many
+    more package, and more importantly being maintained upstream.
+  * Bump Standard-Version to 4.0.1 (no changes needed).
+  * Switch to debhelper compatibility level 10.
+
+ -- Guillem Jover <guillem@debian.org>  Sun, 13 Aug 2017 00:25:11 +0200
+
+debsig-verify (0.16) unstable; urgency=medium
+
+  * Wrap dependency fields in debian/control.
+  * Add debsigs to Suggests.
+  * Mark gnupg Build-Depends as <!nocheck>.
+  * Adapt for libdpkg 1.18.11 ar API changes.
+  * Enable more compilation warnings from configure.
+  * Switch to a single git repository URL in README for browsing and cloning
+    to fix previously broken cloning URL.
+
+ -- Guillem Jover <guillem@debian.org>  Tue, 24 Jan 2017 02:10:20 +0100
+
+debsig-verify (0.15) unstable; urgency=medium
+
+  * Fix typo in error message, reported by lintian.
+  * Fix typo in man page, reported by lintian.
+  * Bump Standard-Version to 3.9.8 (no changes needed).
+  * Use https for debsig policy DTD.
+  * Fix coding style.
+  * Switch to the dpkg makefile fragments in debian/rules.
+  * Enable all hardening flags.
+  * Switch to use the new libdpkg 1.18.8 ar API.
+  * Fix parsing of GnuPG 2.x --list-packets output.
+  * Move debian/copyright paragraph referencing GPL-2 file to a Comment field.
+  * Make configure.ac a dependency of the configure target in debian/rules.
+  * Fix test suite with GnuPG 2.x.
+
+ -- Guillem Jover <guillem@debian.org>  Thu, 14 Jul 2016 00:45:33 +0200
+
+debsig-verify (0.14) unstable; urgency=low
+
+  * Assume at least C89 and POSIX.1-2001.
+  * Fix man page formatting.
+  * Add references to debsigs(1) and gpg(1) to the man page.
+  * Add missing man page .TH fields.
+  * Use https instead of git or http in URLs.
+  * Add new test case covering key to name id mapping.
+  * Switch to use more of libdpkg instead of ad-hoc code:
+    - Use path_make_temp_template().
+    - Switch from popen() to subproc_fork() and execlp(), to avoid shell
+      invocation and unsafe argument passing.
+    - Use the command module to invoke GnuPG instead of execlp().
+  * Do not use an absolute pathname to the GnuPG program.
+  * Make the GnuPG program configurable through the DEBSIG_GNUPG_PROGRAM
+    environment variable.
+  * Fix handling of a possibly non-terminated origin ID string.
+  * Fix a file TOCTOU issue in the XML parser.
+  * Set umask() for mkstemp() calls.
+  * Do not free() nor unlink() an uninitialized string.
+  * Fix printing debug message on unmatched key IDs in getKeyID().
+  * Update copyright years.
+
+ -- Guillem Jover <guillem@debian.org>  Sat, 13 Feb 2016 11:32:58 +0100
+
+debsig-verify (0.13) unstable; urgency=medium
+
+  * Disable all current GnuPG warnings, as these do not concern us, because
+    we only use gpg for verification purposes, so we should not be handling
+    sensitive material anyway. This fixes failures in the testsuite on
+    GNU/Hurd due to unexpected output in stderr.
+
+ -- Guillem Jover <guillem@debian.org>  Tue, 28 Oct 2014 18:03:29 +0100
+
+debsig-verify (0.12) unstable; urgency=medium
+
+  * Merge the testsuite execution into the debian/rules build-arch target,
+    and use a build stamp file so that we do not invoke it from a binary
+    target. The latter is going to be run as root possibly via fakeroot,
+    and as GnuPG is set-uid-root on non-Linux systems, it fails there.
+  * Mark targets as .PHONY in debian/rules.
+  * Explicitly Build-Depend on gnupg for the testsuite.
+
+ -- Guillem Jover <guillem@debian.org>  Tue, 28 Oct 2014 06:24:28 +0100
+
+debsig-verify (0.11) unstable; urgency=medium
+
+  * Update Vcs-Browser git URL to the new cgit scheme.
+  * Add a README file.
+  * Autoconfiscate build system.
+  * Add more warning flags to the default compiler flags.
+  * Do not use continuation lines in string literals.
+  * Reformat and reflow --help output.
+  * Add a --root option to use an alternative root directory.
+    Thanks to Michael Vogt <mvo@ubuntu.com>. Closes: #758525
+  * Add new --policies-dir and --keyrings-dir options.
+  * Add new --help option.
+  * Do not print --version and --help on stderr and make them exit 0. And
+    replace usage error output with a new function that gives a hint to the
+    user to use --help instead.
+  * Add long options for quiet, verbose and debug.
+  * Use DS_LEV_ERR instead of DS_FAIL_INTERNAL as ds_printf() level argument.
+  * Use more of libdpkg instead of ad-hoc code, to reduce code duplication,
+    switch to more tested code, and so that the error return codes are
+    checked and acted upon. Closes: #758615
+    - Switch to use subproc module instead of fork() and waitpid().
+    - Switch from xmalloc to m_malloc().
+    - Use ohshit()/ohshite() instead of ds_fail_printf(DS_FAIL_INTERNAL, ...).
+    - Use m_dup2() instead of raw dup2().
+    - Use fdio API instead of ad-hoc file copying.
+    - Use str_match_end() instead of ad-hoc code, which also fixes a warning
+      due to a signed vs unsigned comparison.
+  * Remove useless return statements.
+  * Use a temporary GNUPGHOME instead of using the users's default.
+    Based on a patch by Michael Vogt <mvo@ubuntu.com>. Closes: #758826
+  * Error out if the GnuPG pipe failed on close.
+  * Explicitly check strcmp() return value instead of handling it as a bool.
+  * Switch originID from global to function scoped variable.
+    Thanks to Michael Vogt <mvo@ubuntu.com>.
+  * Switch deb and deb_fd from global to a function scoped struct.
+  * Change len type to size_t to fix a signed vs unsigned comparison warning.
+  * Make private functions static.
+  * Make private constant string variables static const.
+  * Add new autotest functional testsuite.
+  * Add test cases for signature checks.
+    Based on a patch by Michael Vogt <mvo@ubuntu.com>.
+  * Update copyright holders and years.
+  * Bump Standard-Version to 3.9.6 (no changed needed).
+
+ -- Guillem Jover <guillem@debian.org>  Tue, 28 Oct 2014 04:01:53 +0100
+
+debsig-verify (0.10) unstable; urgency=low
+
+  * Add exit status codes to the man page.
+    Thanks to Ben Collins <bcollins@debian.org>.
+  * Enable LFS by passing the correct build flags to the build.
+  * Extend the package long description.
+  * Add a lintian override for package-contains-empty-directory on
+    /usr/share/debsig/keyrings/.
+
+ -- Guillem Jover <guillem@debian.org>  Tue, 29 Jul 2014 12:21:49 +0200
+
+debsig-verify (0.9) unstable; urgency=low
+
+  * New maintainer. Closes: #540897
+  * Use '' style quoting instead of unpaired `'.
+  * Use italics for pathnames and user replacable strings.
+  * Add missing space before Build-Depends version.
+  * Bump Standard-Version to 3.9.5 (no changed needed).
+  * Stop making build-indep depend on build-stamp in debian/rules.
+  * Stop using a build-stamp in debian/rules.
+  * Add dh_installman and dh_link commands.
+  * Mark debsig-verify as Enhances dpkg.
+  * Sync Priority with archive override (from standard to optional).
+  * Use $(CURDIR) instead of $(shell pwd) in debian/rules.
+  * Honour user CPPFLAGS, CFLAGS and LDFLAGS.
+  * Set build flags via dpkg-buildflags.
+  * Switch debian/copyright to machine-readable format 1.0.
+  * Add support for control.tar, control.tar.xz, data.tar, data.tar.xz,
+    data.tar.bz2 and data.tar.lzma deb members. Closes: #745563
+    Based on a patch by Vivek Das Mohapatra <vivek@etla.org>.
+  * Do not unnecessarily link against libxmltok, only libxmlparse.
+  * Start using libdpkg instead of duplicating code:
+    - Add pkg-config and libdpkg-dev to Build-Depends.
+    - Add a Built-Using field for libdpkg-dev static linking.
+    - Use libdpkg error handling code.
+    - Use libdpkg ar handling. This enables ar large file support (LFS).
+  * Check return values from functions marked with warn_unused_result.
+  * Fix typos (aswell → as well). Closes: #748539
+    Thanks to Tomas Pospisek <tpo_deb@sourcepole.ch>.
+  * Add Vcs-Browser and Vcs-Git fields.
+  * Switch to source format “3.0 (native)”.
+  * Create the debian-keyring.gpg testing symlink in a new check target,
+    instead of shipping it in the git repository or the release tarballs.
+  * Decapitalize package short description.
+
+ -- Guillem Jover <guillem@debian.org>  Fri, 06 Jun 2014 13:41:13 +0200
+
+debsig-verify (0.8) unstable; urgency=low
+
+  * QA upload.
+  * Maintainer field set to QA Group.
+  * Standards-Version bumped to 3.9.3.
+  * Add dependency on ${misc:Depends}.
+  * Debhelper compatibility level set to 9. Build dependency on debhelper
+    updated accordingly.
+  * build-{arch,indep} targets added to debian/rules.
+  * Deprecated dh_clean -k replaced with dh_prep.
+
+ -- Emanuele Rocca <ema@debian.org>  Sun, 20 May 2012 09:25:43 +0000
+
+debsig-verify (0.7) unstable; urgency=low
+
+  * Upload to main proper
+
+ -- Ben Collins <bcollins@debian.org>  Tue, 15 Apr 2003 13:37:34 -0400
+
+debsig-verify (0.6) unstable; urgency=low
+
+  * Redesigned ds_fail_printf
+  * Initialize gpg before using it
+
+ -- Ben Collins <bcollins@debian.org>  Fri, 27 Apr 2001 13:55:52 -0400
+
+debsig-verify (0.5) unstable; urgency=low
+
+  * Some formatting changes
+  * add "debian-binary" to members that are part of the signed data
+  * For the selection phase, do not actually check the signatures with
+    gpg. Just make sure they exist, and match if the ID is specified
+  * If -d is specified, allow gpg output to stdout/stderr
+
+ -- Ben Collins <bcollins@debian.org>  Sat, 14 Apr 2001 00:41:03 -0400
+
+debsig-verify (0.4) unstable; urgency=low
+
+  * Fix execl in gpgVerify()
+  * Make sure files end in .pol
+  * Add some more debug output
+
+ -- Ben Collins <bcollins@debian.org>  Thu,  8 Mar 2001 10:50:01 -0500
+
+debsig-verify (0.3) unstable; urgency=low
+
+  * debian/control: Suggests debian-keyring, Section non-US/main
+
+ -- Ben Collins <bcollins@debian.org>  Sun, 21 Jan 2001 13:48:08 -0500
+
+debsig-verify (0.2) unstable; urgency=low
+
+  * Added --list-policies, to get a list of applicable policies for a .deb
+    (do not verify the contents). Also added a --use-policy so the user
+    can specify one of the shortnames in the list from the list option.
+  * Added manpage for debsig-verify
+  * Added some code to free up alloc'd memory used by parsePolicy()
+  * Lots of code cleanups
+  * Added a -d option for debug output
+  * Change to use "gpg --verify <sig> <file>" instead of stdin. The newest
+    gpg changed this behavior to fix a security issue.
+  * Use obstack to alloc policy data in xml-parts.c
+
+ -- Ben Collins <bcollins@debian.org>  Tue, 12 Dec 2000 17:41:53 -0500
+
+debsig-verify (0.1) unstable; urgency=low
+
+  * Original setup
+
+ -- Ben Collins <bcollins@debian.org>  Mon,  4 Dec 2000 20:21:32 -0500

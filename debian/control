@@ -1,0 +1,35 @@
+Source: debsig-verify
+Section: admin
+Priority: optional
+Maintainer: Dpkg Developers <debian-dpkg@lists.debian.org>
+Uploaders: Guillem Jover <guillem@debian.org>
+Vcs-Browser: https://git.dpkg.org/cgit/dpkg/debsig-verify.git
+Vcs-Git: https://git.dpkg.org/git/dpkg/debsig-verify.git
+Standards-Version: 4.1.5
+Rules-Requires-Root: no
+Build-Depends:
+ debhelper (>= 10),
+ pkg-config,
+ libdpkg-dev (>= 1.18.11),
+ libexpat1-dev,
+ gpg <!nocheck> | gnupg <!nocheck>,
+# We need the agent for the test suite as we are handling a secret keyring.
+ gpg-agent <!nocheck> | gnupg-agent <!nocheck>,
+
+Package: debsig-verify
+Architecture: any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ gpg | gnupg,
+Suggests:
+ debian-keyring,
+ debsigs,
+Enhances:
+ dpkg,
+Built-Using: ${sourcedep:libdpkg-dev}
+Description: Debian package signature verification tool
+ This tool inspects and verifies binary package digital signatures based
+ on predetermined policies, complementing repository signatures or allowing
+ to verify the authenticity of a package even after download when detached
+ from a repository.
