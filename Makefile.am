@@ -36,10 +36,11 @@ EXTRA_DIST = \
 	doc/policy-syntax.txt \
 	doc/policy.dtd \
 	debian/changelog \
-	debian/compat \
 	debian/control \
 	debian/copyright \
-	debian/lintian-overrides \
+	debian/debsig-verify.docs \
+	debian/debsig-verify.examples \
+	debian/debsig-verify.lintian-overrides \
 	debian/rules \
 	debian/source/format \
 	debian/tests/control \
@@ -63,6 +64,9 @@ man_MANS = \
 install-data-local:
 	$(MKDIR_P) $(DESTDIR)$(DEBSIG_POLICIES_DIR)
 	$(MKDIR_P) $(DESTDIR)$(DEBSIG_KEYRINGS_DIR)
+
+dist-hook:
+	echo $(VERSION) >$(distdir)/.dist-version
 
 clean-local:
 	$(RM) doc/debsig-verify.1

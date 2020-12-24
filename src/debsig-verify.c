@@ -2,7 +2,7 @@
  * debsig-verify - Debian package signature verification tool
  *
  * Copyright © 2000 Ben Collins <bcollins@debian.org>
- * Copyright © 2014-2016 Guillem Jover <guillem@debian.org>
+ * Copyright © 2014-2016, 2018 Guillem Jover <guillem@debian.org>
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -481,7 +481,6 @@ main(int argc, char *argv[])
     closedir(pd);
 
     free(origin_dir);
-    free(pol_file);
 
     if ((pol == NULL && !list_only) || list_only == 1) /* Damn, can't verify this one */
 	ds_fail_printf(DS_FAIL_NOPOLICIES, "No applicable policy found.");
@@ -490,6 +489,7 @@ main(int argc, char *argv[])
 	exit(0); /* our job is done */
 
     ds_printf(DS_LEV_VER, "Using policy file: %s", pol_file);
+    free(pol_file);
 
     /* This should actually be caught in the xml-parsing. */
     if (pol->vers == NULL)
