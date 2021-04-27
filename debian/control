@@ -1,8 +1,9 @@
 Source: debsig-verify
 Section: admin
 Priority: optional
-Maintainer: Dpkg Developers <debian-dpkg@lists.debian.org>
-Uploaders: Guillem Jover <guillem@debian.org>
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Dpkg Developers <debian-dpkg@lists.debian.org>
+XSBC-Pexip-Original-Uploaders: Guillem Jover <guillem@debian.org>
 Vcs-Browser: https://git.dpkg.org/cgit/dpkg/debsig-verify.git
 Vcs-Git: https://git.dpkg.org/git/dpkg/debsig-verify.git
 Standards-Version: 4.1.5
@@ -15,6 +16,7 @@ Build-Depends:
  gpg <!nocheck> | gnupg <!nocheck>,
 # We need the agent for the test suite as we are handling a secret keyring.
  gpg-agent <!nocheck> | gnupg-agent <!nocheck>,
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ buster
 
 Package: debsig-verify
 Architecture: any
