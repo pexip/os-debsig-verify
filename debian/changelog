@@ -1,3 +1,9 @@
+debsig-verify (0.19pexip2) pexip; urgency=medium
+
+  * Re-upload to move into main with new overrides
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Mon, 24 May 2021 15:32:27 +0100
+
 debsig-verify (0.19pexip1) pexip; urgency=medium
 
   * Prepare Pexip packaging
