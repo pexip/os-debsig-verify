@@ -2,7 +2,7 @@
  * debsig-verify - Debian package signature verification tool
  *
  * Copyright © 2000 Ben Collins <bcollins@debian.org>
- * Copyright © 2014-2016 Guillem Jover <guillem@debian.org>
+ * Copyright © 2014-2017 Guillem Jover <guillem@debian.org>
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,6 +66,7 @@ static void
 gpg_init(void)
 {
     const char *prog;
+    char *gpg_tmpdir_template;
     int rc;
 
     if (gpg_inited)
@@ -75,9 +76,10 @@ gpg_init(void)
     if (prog)
       gpg_prog = prog;
 
-    gpg_tmpdir = mkdtemp(path_make_temp_template("debsig-verify"));
+    gpg_tmpdir_template = path_make_temp_template("debsig-verify");
+    gpg_tmpdir = mkdtemp(gpg_tmpdir_template);
     if (gpg_tmpdir == NULL)
-        ohshite("cannot create temporary directory '%s'", gpg_tmpdir);
+        ohshite("cannot create temporary directory '%s'", gpg_tmpdir_template);
 
     rc = setenv("GNUPGHOME", gpg_tmpdir, 1);
     if (rc < 0)
@@ -148,7 +150,7 @@ getKeyID(const char *originID, const struct match *mtc)
 	return NULL;
     }
 
-    while ((c = fgets(buf, sizeof(buf), ds)) != NULL) {
+    while (fgets(buf, sizeof(buf), ds) != NULL) {
 	/* Skip comments. */
 	if (buf[0] == '#')
 	    continue;
@@ -249,7 +251,7 @@ getSigKeyID(struct dpkg_ar *deb, const char *type)
 	ohshite("getSigKeyID: error closing gpg write pipe");
 
     /* Now, let's see what gpg has to say about all this */
-    while ((c = fgets(buf, sizeof(buf), ds_read)) != NULL) {
+    while (fgets(buf, sizeof(buf), ds_read) != NULL) {
 	if (strncmp(buf, SIG_MAGIC, strlen(SIG_MAGIC)) == 0) {
 	    if ((c = strchr(buf, '\n')) != NULL)
 		*c = '\0';

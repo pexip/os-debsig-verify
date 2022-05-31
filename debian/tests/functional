@@ -3,7 +3,8 @@
 set -e
 
 # Configure
-debian/rules build-tree/config.status
+autoreconf -f -i 2>&1
+./configure
 
 # Run the install-time test suite
-make -C build-tree installcheck
+make installcheck
