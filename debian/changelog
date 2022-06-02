@@ -1,3 +1,9 @@
+debsig-verify (0.23pexip1) pexip; urgency=medium
+
+  * Initial bullseye build
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Thu, 02 Jun 2022 14:42:08 +0100
+
 debsig-verify (0.23) unstable; urgency=medium
 
   * Remove unused ‘c’ variable assignment in fgets() call.
