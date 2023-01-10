@@ -1,8 +1,9 @@
 /*
  * debsig-verify - Debian package signature verification tool
+ * openpgp-gpg.c - OpenPGP backend (GnuPG)
  *
  * Copyright © 2000 Ben Collins <bcollins@debian.org>
- * Copyright © 2014-2017 Guillem Jover <guillem@debian.org>
+ * Copyright © 2014-2017, 2019-2021 Guillem Jover <guillem@debian.org>
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,19 +19,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/*
- * routines to parse gpg output
- */
-
 #include <config.h>
 
-#include <stdio.h>
-#include <string.h>
 #include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+
+#include <ctype.h>
+#include <fcntl.h>
+#include <string.h>
+#include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #include <dpkg/dpkg.h>
 #include <dpkg/subproc.h>
@@ -54,7 +55,7 @@ cleanup_gpg_tmpdir(void)
       execlp("rm", "rm", "-rf", gpg_tmpdir, NULL);
       ohshite("unable to execute %s (%s)", "rm", "rm -rf");
     }
-    subproc_reap(pid, "getSigKeyID", SUBPROC_NOCHECK);
+    subproc_reap(pid, "remove GnuPG temporary home directory", SUBPROC_NOCHECK);
 
     free(gpg_tmpdir);
     gpg_tmpdir = NULL;
@@ -81,6 +82,9 @@ gpg_init(void)
     if (gpg_tmpdir == NULL)
         ohshite("cannot create temporary directory '%s'", gpg_tmpdir_template);
 
+    /* Do not let external interference. */
+    unsetenv("GPG_TTY");
+
     rc = setenv("GNUPGHOME", gpg_tmpdir, 1);
     if (rc < 0)
         ohshite("cannot set environment variable %s to '%s'", "GNUPGHOME",
@@ -97,35 +101,90 @@ static void
 command_gpg_init(struct command *cmd)
 {
     command_init(cmd, gpg_prog, "gpg");
+    command_add_arg(cmd, gpg_prog);
     command_add_args(cmd, "--no-options", "--no-default-keyring", "--batch",
                           "--no-secmem-warning", "--no-permission-warning",
                           "--no-mdc-warning", "--no-auto-check-trustdb", NULL);
+    command_add_args(cmd, "--weak-digest", "RIPEMD160", NULL);
+    command_add_args(cmd, "--weak-digest", "SHA1", NULL);
 }
 
 enum keyid_state {
     KEYID_UNKNOWN,
-    KEYID_USER,
+    KEYID_PUB,
+    KEYID_FPR,
+    KEYID_UID,
     KEYID_SIG,
 };
 
-char *
-getKeyID(const char *originID, const struct match *mtc)
+enum colon_fields {
+    COLON_FIELD_FPR_ID = 10,
+    COLON_FIELD_UID_ID = 10,
+};
+
+enum errsig_fields {
+    ERRSIG_FIELD_SELF = 2,
+    ERRSIG_FIELD_KEY_ID = 3,
+    ERRSIG_FIELD_FPR_ID = 9,
+};
+
+static bool
+match_prefix(const char *str, const char *prefix)
 {
-    static char buf[2048];
-    char *keyring;
+    size_t prefix_len = strlen(prefix);
+
+    return strncmp(str, prefix, prefix_len) == 0;
+}
+
+static char *
+get_field(const char *str, int field_sep, int field_num)
+{
+    const char *end;
+
+    for (int field = 1; field < field_num && str[0]; field++) {
+        str = strchrnul(str, field_sep);
+        if (str[0] != field_sep && str[0] != '\0')
+            return NULL;
+        if (str[0])
+            str++;
+    }
+
+    end = strchrnul(str, field_sep);
+    if (end[0] != field_sep && end[0] != '\0')
+        return NULL;
+
+    return strndup(str, end - str);
+}
+
+static char *
+get_space_field(const char *str, int field_num)
+{
+    return get_field(str, ' ', field_num);
+}
+
+static char *
+get_colon_field(const char *str, int field_num)
+{
+    return get_field(str, ':', field_num);
+}
+
+static char *
+gpg_getKeyID(const char *keyring, const char *match_id)
+{
+    char *buf = NULL;
+    size_t buflen = 0;
+    ssize_t nread;
     pid_t pid;
     int pipefd[2];
     FILE *ds;
-    char *c, *d, *ret = NULL;
+    char *ret = NULL;
+    char *fpr = NULL;
     enum keyid_state state = KEYID_UNKNOWN;
 
-    if (mtc->id == NULL)
+    if (match_id == NULL)
 	return NULL;
 
     gpg_init();
-
-    m_asprintf(&keyring, "%s%s/%s/%s", rootdir, keyrings_dir, originID,
-               mtc->file);
 
     m_pipe(pipefd);
     pid = subproc_fork();
@@ -137,12 +196,11 @@ getKeyID(const char *originID, const struct match *mtc)
         close(pipefd[1]);
 
         command_gpg_init(&cmd);
-        command_add_args(&cmd, "--list-packets", "-q", keyring, NULL);
+        command_add_args(&cmd, "--quiet", "--with-colons", "--show-keys",
+                               keyring, NULL);
         command_exec(&cmd);
     }
     close(pipefd[1]);
-
-    free(keyring);
 
     ds = fdopen(pipefd[0], "r");
     if (ds == NULL) {
@@ -150,65 +208,74 @@ getKeyID(const char *originID, const struct match *mtc)
 	return NULL;
     }
 
-    while (fgets(buf, sizeof(buf), ds) != NULL) {
-	/* Skip comments. */
-	if (buf[0] == '#')
-	    continue;
+    while ((nread = getline(&buf, &buflen, ds)) >= 0) {
+        if (buf[nread - 1] != '\n') {
+          ds_printf(DS_LEV_DEBUG, "        getKeyID: found truncated input from GnuPG, aborting");
+          break;
+        }
+        buf[nread - 1] = '\0';
 
 	if (state == KEYID_UNKNOWN) {
-	    if (strncmp(buf, USER_MAGIC, strlen(USER_MAGIC)) != 0)
+            if (!match_prefix(buf, "pub:"))
 		continue;
-	    c = strchr(buf, '"');
-	    if (c == NULL)
+
+            /* Certificate found. */
+            state = KEYID_PUB;
+        } else if (state == KEYID_PUB) {
+            if (!match_prefix(buf, "fpr:"))
 		continue;
-	    d = c + 1;
-	    c = strchr(d, '"');
-	    if (c == NULL)
+            fpr = get_colon_field(buf, COLON_FIELD_FPR_ID);
+            if (eqKeyID(fpr, match_id)) {
+                ret = fpr;
+                break;
+            }
+            state = KEYID_FPR;
+        } else if (state == KEYID_FPR) {
+            char *uid;
+
+            if (!match_prefix(buf, "uid:"))
 		continue;
-	    *c = '\0';
-	    if (strcmp(d, mtc->id) != 0)
+
+            uid = get_colon_field(buf, COLON_FIELD_UID_ID);
+            if (uid == NULL)
 		continue;
-	    /* User match found. */
-	    state = KEYID_USER;
-	} else if (state == KEYID_USER) {
-	    if (strncmp(buf, SIG_MAGIC, strlen(SIG_MAGIC)) != 0)
+            if (strcmp(uid, match_id) != 0) {
+                free(uid);
 		continue;
-	    if ((c = strchr(buf, '\n')) != NULL)
-		*c = '\0';
-	    d = strstr(buf, "keyid");
-	    if (d) {
-		ret = d + 6;
-		/* Keyid match found. */
-		break;
 	    }
-	    /* Reset state. */
-	    state = KEYID_UNKNOWN;
-	}
+            free(uid);
+
+            /* Fingerprint match found. */
+            ret = fpr;
+            break;
+        }
     }
     fclose(ds);
+    free(buf);
 
     subproc_reap(pid, "getKeyID", SUBPROC_NORMAL);
 
     if (ret == NULL) {
-	ds_printf(DS_LEV_DEBUG, "        getKeyID: no match, falling back to %s", mtc->id);
-	ret = mtc->id;
+	ds_printf(DS_LEV_DEBUG, "        getKeyID: failed for %s", match_id);
     } else {
-	ds_printf(DS_LEV_DEBUG, "        getKeyID: mapped %s -> %s", mtc->id, ret);
+	ds_printf(DS_LEV_DEBUG, "        getKeyID: mapped %s -> %s", match_id, ret);
     }
 
     return ret;
 }
 
-char *
-getSigKeyID(struct dpkg_ar *deb, const char *type)
+static char *
+gpg_getSigKeyID(struct dpkg_ar *deb, const char *name)
 {
-    static char buf[2048];
+    char *buf = NULL;
+    size_t buflen = 0;
+    ssize_t nread;
     struct dpkg_error err;
     int pread[2], pwrite[2];
-    off_t len = checkSigExist(deb, type);
+    off_t len = checkSigExist(deb, name);
     pid_t pid;
     FILE *ds_read;
-    char *c, *ret = NULL;
+    char *ret = NULL;
 
     if (!len)
 	return NULL;
@@ -227,6 +294,7 @@ getSigKeyID(struct dpkg_ar *deb, const char *type)
     pid = subproc_fork();
     if (pid == 0) {
         struct command cmd;
+        int null_fd;
 
 	/* Here we go */
 	m_dup2(pread[1], 1);
@@ -236,8 +304,13 @@ getSigKeyID(struct dpkg_ar *deb, const char *type)
 	close(pwrite[0]);
 	close(pwrite[1]);
 
+	null_fd = open("/dev/null", O_WRONLY);
+	m_dup2(null_fd, STDERR_FILENO);
+
 	command_gpg_init(&cmd);
-	command_add_args(&cmd, "--list-packets", "-q", "-", NULL);
+	command_add_args(&cmd, "--keyring", "/dev/null", NULL);
+	command_add_args(&cmd, "--status-fd", "1", NULL);
+	command_add_args(&cmd, "--verify", "-", "/dev/null", NULL);
 	command_exec(&cmd);
     }
     close(pread[1]); close(pwrite[0]);
@@ -251,49 +324,60 @@ getSigKeyID(struct dpkg_ar *deb, const char *type)
 	ohshite("getSigKeyID: error closing gpg write pipe");
 
     /* Now, let's see what gpg has to say about all this */
-    while (fgets(buf, sizeof(buf), ds_read) != NULL) {
-	if (strncmp(buf, SIG_MAGIC, strlen(SIG_MAGIC)) == 0) {
-	    if ((c = strchr(buf, '\n')) != NULL)
-		*c = '\0';
-	    /* This is the only line we care about */
-	    ret = strstr(buf, "keyid");
-	    if (ret) {
-		ret += 6;
-		break;
-	    }
-	}
+    while ((nread = getline(&buf, &buflen, ds_read)) >= 0) {
+        if (buf[nread - 1] != '\n') {
+          ds_printf(DS_LEV_DEBUG, "        getKeyID: found truncated input from GnuPG, aborting");
+          break;
+        }
+        buf[nread - 1] = '\0';
+
+        /* Skip comments. */
+        if (buf[0] == '#')
+            continue;
+
+        if (strncmp(buf, "[GNUPG:]", 8) != 0)
+            continue;
+
+        ret = get_space_field(buf, ERRSIG_FIELD_SELF);
+        if (strcmp(ret, "ERRSIG") != 0) {
+            free(ret);
+            ret = NULL;
+            continue;
+        }
+
+        free(ret);
+        ret = get_space_field(buf, ERRSIG_FIELD_FPR_ID);
+        if (strcmp(ret, "-") != 0)
+            break;
+
+        free(ret);
+        ret = get_space_field(buf, ERRSIG_FIELD_KEY_ID);
+        break;
     }
     if (ferror(ds_read))
 	ohshit("error reading from gpg");
     fclose(ds_read);
+    free(buf);
 
     subproc_reap(pid, "getSigKeyID", SUBPROC_NOCHECK);
 
     if (ret == NULL)
-	ds_printf(DS_LEV_DEBUG, "        getSigKeyID: failed for %s", type);
+	ds_printf(DS_LEV_DEBUG, "        getSigKeyID: failed for %s", name);
     else
-	ds_printf(DS_LEV_DEBUG, "        getSigKeyID: got %s for %s key", ret, type);
+	ds_printf(DS_LEV_DEBUG, "        getSigKeyID: got %s for %s key", ret, name);
 
-    return ret;
+    if (ret)
+      return strdup(ret);
+    return NULL;
 }
 
-int
-gpgVerify(const char *originID, struct match *mtc,
-          const char *data, const char *sig)
+static int
+gpg_sigVerify(const char *keyring, const char *data, const char *sig)
 {
-    char keyring[8192];
     pid_t pid;
     int rc;
-    struct stat st;
 
     gpg_init();
-
-    snprintf(keyring, sizeof(keyring) - 1, "%s%s/%s/%s",
-             rootdir, keyrings_dir, originID, mtc->file);
-    if (stat(keyring, &st)) {
-	ds_printf(DS_LEV_DEBUG, "gpgVerify: could not stat %s", keyring);
-	return 0;
-    }
 
     pid = subproc_fork();
     if (pid == 0) {
@@ -308,11 +392,18 @@ gpgVerify(const char *originID, struct match *mtc,
         command_exec(&cmd);
     }
 
-    rc = subproc_reap(pid, "gpgVerify", SUBPROC_RETERROR | SUBPROC_RETSIGNO);
+    rc = subproc_reap(pid, "sigVerify", SUBPROC_RETERROR | SUBPROC_RETSIGNO);
     if (rc != 0) {
-	ds_printf(DS_LEV_DEBUG, "gpgVerify: gpg exited abnormally or with non-zero exit status");
+	ds_printf(DS_LEV_DEBUG, "sigVerify: gpg exited abnormally or with non-zero exit status");
 	return 0;
     }
 
     return 1;
 }
+
+const struct openpgp openpgp_gpg = {
+	.cmd = "gpg",
+	.getKeyID = gpg_getKeyID,
+	.getSigKeyID = gpg_getSigKeyID,
+	.sigVerify = gpg_sigVerify,
+};

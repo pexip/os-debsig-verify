@@ -24,9 +24,10 @@ src_debsig_verify_SOURCES = \
 	src/ar-parse.c \
 	src/debsig.h \
 	src/debsig-verify.c \
-	src/gpg-parse.c \
 	src/misc.c \
-	src/xml-parse.c \
+	src/openpgp.c \
+	src/openpgp-gpg.c \
+	src/policy-xml.c \
 	$(nil)
 
 EXTRA_DIST = \

@@ -2,7 +2,7 @@
  * debsig-verify - Debian package signature verification tool
  *
  * Copyright © 2000 Ben Collins <bcollins@debian.org>
- * Copyright © 2014, 2016 Guillem Jover <guillem@debian.org>
+ * Copyright © 2014, 2016, 2019, 2021 Guillem Jover <guillem@debian.org>
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,8 +24,14 @@
 
 #include <config.h>
 
-#include <stdio.h>
+#include <sys/stat.h>
+
 #include <stdarg.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+#include <dpkg/ehandle.h>
+#include <dpkg/varbuf.h>
 
 #include "debsig.h"
 
@@ -35,27 +41,46 @@ void
 ds_printf(int level, const char *fmt, ...)
 {
     va_list ap;
-    char buf[8096];
 
     if (level >= ds_debug_level) {
+	printf("debsig: ");
 	va_start(ap, fmt);
-	snprintf(buf, sizeof(buf) - 1, "debsig: %s\n", fmt);
-	(void) vprintf(buf, ap);
+	(void) vprintf(fmt, ap);
 	va_end(ap);
+	printf("\n");
     }
 }
 
-off_t
-checkSigExist(struct dpkg_ar *deb, const char *name)
+bool
+find_command(const char *prog)
 {
-    char buf[16];
+    struct varbuf filename = VARBUF_INIT;
+    struct stat stab;
+    const char *path_list;
+    const char *path, *path_end;
+    size_t path_len;
 
-    if (name == NULL) {
-	ds_printf(DS_LEV_DEBUG, "checkSigExist: NULL values passed");
-	return 0;
+    path_list = getenv("PATH");
+    if (!path_list)
+      ohshit("PATH is not set");
+
+    for (path = path_list; path; path = *path_end ? path_end + 1 : NULL) {
+        path_end = strchrnul(path, ':');
+        path_len = (size_t)(path_end - path);
+
+        varbuf_reset(&filename);
+        varbuf_add_buf(&filename, path, path_len);
+        if (path_len)
+            varbuf_add_char(&filename, '/');
+        varbuf_add_str(&filename, prog);
+        varbuf_end_str(&filename);
+
+        if (stat(filename.buf, &stab) == 0 && (stab.st_mode & 0111)) {
+            varbuf_destroy(&filename);
+            return true;
+        }
     }
 
-    snprintf(buf, sizeof(buf) - 1, "_gpg%s", name);
-
-    return findMember(deb, buf);
+    varbuf_destroy(&filename);
+    return false;
 }

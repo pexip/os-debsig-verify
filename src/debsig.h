@@ -2,7 +2,7 @@
  * debsig-verify - Debian package signature verification tool
  *
  * Copyright © 2000 Ben Collins <bcollins@debian.org>
- * Copyright © 2014-2016 Guillem Jover <guillem@debian.org>
+ * Copyright © 2014-2016, 2019, 2021 Guillem Jover <guillem@debian.org>
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,21 +18,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <stdbool.h>
+
 #include <dpkg/ar.h>
-
-#define SIG_MAGIC ":signature packet:"
-#define USER_MAGIC ":user ID packet:"
-
-#define OPTIONAL_MATCH 1
-#define REQUIRED_MATCH 2
-#define REJECT_MATCH 3
 
 #define SIG_VERSION "1.0"
 #define DEBSIG_NAMESPACE "https://www.debian.org/debsig/"SIG_VERSION"/"
 
+enum match_type {
+	MATCH_OPTIONAL = 1,
+	MATCH_REQUIRED = 2,
+	MATCH_REJECT = 3,
+};
+
 struct match {
         struct match *next;
-        int type;
+	enum match_type type;
         char *name;
         char *file;
         char *id;
@@ -53,6 +54,21 @@ struct policy {
         struct group *vers;
 };
 
+typedef char *getKeyID_func(const char *keyring, const char *match_id);
+typedef char *getSigKeyID_func(struct dpkg_ar *deb, const char *name);
+typedef int sigVerify_func(const char *keyring,
+                           const char *data, const char *sig);
+
+struct openpgp {
+	const char *cmd;
+	getKeyID_func *getKeyID;
+	getSigKeyID_func *getSigKeyID;
+	sigVerify_func *sigVerify;
+};
+
+#define OPENPGP_FPR_LEN 40
+#define OPENPGP_KEY_LEN 16
+
 struct policy *
 parsePolicyFile(const char *filename);
 off_t
@@ -60,14 +76,21 @@ findMember(struct dpkg_ar *deb, const char *name);
 off_t
 checkSigExist(struct dpkg_ar *deb, const char *name);
 char *
-getKeyID(const char *originID, const struct match *mtc);
-char *
-getSigKeyID(struct dpkg_ar *deb, const char *type);
-int
-gpgVerify(const char *originID, struct match *mtc,
-          const char *data, const char *sig);
+getDbPathname(const char *rootdir, const char *dir, const char *id,
+              const char *filename);
+bool
+eqKeyID(const char *fprA, const char *fprB);
+getKeyID_func
+getKeyID;
+getSigKeyID_func
+getSigKeyID;
+sigVerify_func
+sigVerify;
+
 void
 clear_policy(void);
+
+bool find_command(const char *prog);
 
 /* Debugging and failures */
 #define DS_LEV_ALWAYS 3

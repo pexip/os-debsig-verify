@@ -2,7 +2,7 @@
  * debsig-verify - Debian package signature verification tool
  *
  * Copyright © 2000 Ben Collins <bcollins@debian.org>
- * Copyright © 2014-2016, 2018 Guillem Jover <guillem@debian.org>
+ * Copyright © 2014-2023 Guillem Jover <guillem@debian.org>
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,14 +24,15 @@
 
 #include <config.h>
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <unistd.h>
 #include <sys/types.h>
+
+#include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #include <dpkg/dpkg.h>
 #include <dpkg/string.h>
@@ -49,10 +50,10 @@ const char *keyrings_dir = DEBSIG_KEYRINGS_DIR;
 #define DTAR(x) "data.tar" # x
 static const char ver_magic_member[] = "debian-binary";
 static const char *ver_ctrl_members[] = {
-	CTAR(), CTAR(.gz), CTAR(.xz), NULL
+	CTAR(), CTAR(.gz), CTAR(.xz), CTAR(.zst), NULL
 };
 static const char *ver_data_members[] = {
-	DTAR(), DTAR(.gz), DTAR(.xz), DTAR(.bz2), DTAR(.lzma), NULL
+	DTAR(), DTAR(.gz), DTAR(.xz), DTAR(.zst), DTAR(.bz2), DTAR(.lzma), NULL
 };
 
 static int
@@ -63,28 +64,49 @@ checkSelRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
     int len;
 
     for (mtc = grp->matches; mtc; mtc = mtc->next) {
+        char *keyring;
+
         ds_printf(DS_LEV_VER, "      Processing '%s' key...", mtc->name);
 
-        /* If we have an ID for this match, check to make sure it exists, and
-         * matches the signature we are about to check.  */
-        if (mtc->id) {
-            char *m_id = getKeyID(originID, mtc);
-            char *d_id = getSigKeyID(deb, mtc->name);
-            if (m_id == NULL || d_id == NULL || strcmp(m_id, d_id) != 0)
-                return 0;
+        /* Get the keyring we might need to use multiple times. */
+        keyring = getDbPathname(rootdir, keyrings_dir, originID, mtc->file);
+        if (keyring == NULL) {
+            ds_printf(DS_LEV_DEBUG, "checkSelRules: cannot find %s keyring", mtc->file);
+            return 0;
         }
 
-	/* XXX: If the match doesn't specify an ID, we need to check to
-	 * make sure the ID of the signature exists in the keyring
-	 * specified, don't we?
-	 */
+        if (mtc->id) {
+            /* If we have an ID for this match, check to make sure it exists,
+             * and matches the signature we are about to check.  */
+            char *m_id = getKeyID(keyring, mtc->id);
+            char *d_id = getSigKeyID(deb, mtc->name);
+            bool is_same_id = eqKeyID(m_id, d_id);
+
+            free(m_id);
+            free(d_id);
+            free(keyring);
+
+            if (!is_same_id)
+                return 0;
+        } else {
+            /* If the match does not specify an ID, we should check whether
+             * the ID of the signature exists in the keyring specified. */
+            char *m_id = getKeyID(keyring, originID);
+            bool found = m_id != NULL;
+
+            free(m_id);
+            free(keyring);
+
+            if (!found)
+              return 0;
+        }
 
         len = checkSigExist(deb, mtc->name);
 
         /* If the member exists and we reject it, fail now. Also, if it
          * doesn't exist, and we require it, fail as well. */
-        if ((!len && mtc->type == REQUIRED_MATCH) ||
-                (len && mtc->type == REJECT_MATCH)) {
+        if ((!len && mtc->type == MATCH_REQUIRED) ||
+            (len && mtc->type == MATCH_REJECT)) {
             return 0;
         }
         /* This would mean this is Optional, so we ignore it for now */
@@ -92,7 +114,7 @@ checkSelRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
             continue;
 
         /* Kick up the count once for checking later */
-        if (mtc->type == OPTIONAL_MATCH)
+        if (mtc->type == MATCH_OPTIONAL)
             opt_count++;
     }
 
@@ -110,6 +132,7 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
 {
     struct dpkg_error err;
     char *tmp_sig, *tmp_data;
+    char *keyring = NULL;
     int opt_count = 0, t, i, fd;
     struct match *mtc;
     off_t len;
@@ -133,7 +156,7 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
     }
 
     /* Now, let's find all the members we need to check and cat them into a
-     * single temp file. This is what we pass to gpg.  */
+     * single temp file. This is what we pass to the OpenPGP implementation. */
     if (!(len = findMember(deb, ver_magic_member)))
         goto fail_and_close;
     len = fd_fd_copy(deb->fd, fd, len, &err);
@@ -171,12 +194,24 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
     for (mtc = grp->matches; mtc; mtc = mtc->next) {
 	ds_printf(DS_LEV_VER, "      Processing '%s' key...", mtc->name);
 
+        /* Get the keyring we might need to use multiple times. */
+        keyring = getDbPathname(rootdir, keyrings_dir, originID, mtc->file);
+        if (keyring == NULL) {
+            ds_printf(DS_LEV_DEBUG, "verifyGroupRules: cannot find %s keyring", mtc->file);
+            goto fail_and_close;
+        }
+
 	/* If we have an ID for this match, check to make sure it exists, and
 	 * matches the signature we are about to check.  */
 	if (mtc->id) {
-	    char *m_id = getKeyID(originID, mtc);
+	    char *m_id = getKeyID(keyring, mtc->id);
 	    char *d_id = getSigKeyID(deb, mtc->name);
-	    if (m_id == NULL || d_id == NULL || strcmp(m_id, d_id) != 0)
+            bool is_same_id = eqKeyID(m_id, d_id);
+
+            free(m_id);
+            free(d_id);
+
+            if (!is_same_id)
 		goto fail_and_close;
 	}
 
@@ -185,8 +220,8 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
 
 	/* If the member exists and we reject it, die now. Also, if it
 	 * doesn't exist, and we require it, die as well. */
-	if ((!len && mtc->type == REQUIRED_MATCH) ||
-		(len && mtc->type == REJECT_MATCH)) {
+	if ((!len && mtc->type == MATCH_REQUIRED) ||
+	    (len && mtc->type == MATCH_REJECT)) {
 	    goto fail_and_close;
 	}
 
@@ -209,8 +244,11 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
 	if (close(fd) < 0)
 	    ohshit("error closing temp file %s", tmp_sig);
 
-	/* Now, let's check with gpg on this one */
-	t = gpgVerify(originID, mtc, tmp_data, tmp_sig);
+	/* Now, let's check with an OpenPGP implementation on this one. */
+	t = sigVerify(keyring, tmp_data, tmp_sig);
+
+        free(keyring);
+        keyring = NULL;
 
 	fd = -1;
 	unlink(tmp_sig);
@@ -224,7 +262,7 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
 	}
 
 	/* Kick up the count once for checking later */
-	if (mtc->type == OPTIONAL_MATCH)
+	if (mtc->type == MATCH_OPTIONAL)
 	    opt_count++;
     }
 
@@ -241,6 +279,7 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
 fail_and_close:
     unlink(tmp_data);
     free(tmp_data);
+    free(keyring);
     if (fd != -1)
 	close(fd);
     return 0;
@@ -404,14 +443,17 @@ main(int argc, char *argv[])
 		outputBadUsage();
 	    }
 	} else {
-	    ds_printf(DS_LEV_ERR, "unknown argument");
+	    ds_printf(DS_LEV_ERR, "unknown argument '%s'", argv[i]);
 	    outputUsage();
 	    exit(1);
 	}
     }
 
     /* There should only be one arg left. */
-    if (i + 1 != argc) {
+    if (i == argc) {
+	ds_printf(DS_LEV_ERR, "missing .deb archive");
+	outputBadUsage();
+    } else if (i + 1 > argc) {
 	ds_printf(DS_LEV_ERR, "too many arguments");
 	outputBadUsage();
     }
@@ -429,7 +471,10 @@ main(int argc, char *argv[])
 	ds_fail_printf(DS_FAIL_NOSIGS, "Origin Signature check failed. This deb might not be signed.\n");
 
     /* Now we have an ID, let's check the policy to use */
-    m_asprintf(&origin_dir, "%s%s/%s", rootdir, policies_dir, originID);
+    origin_dir = getDbPathname(rootdir, policies_dir, originID, NULL);
+    if (origin_dir == NULL)
+        ds_fail_printf(DS_FAIL_UNKNOWN_ORIGIN,
+                       "Could not find Origin directory for %s\n", originID);
 
     pd = opendir(origin_dir);
     if (pd == NULL)
