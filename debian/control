@@ -16,7 +16,7 @@ Build-Depends:
  gpg <!nocheck> | gnupg <!nocheck>,
 # We need the agent for the test suite as we are handling a secret keyring.
  gpg-agent <!nocheck> | gnupg-agent <!nocheck>,
-XS-Pexip-Upstream: http://deb.debian.org/debian/ bullseye
+XS-Pexip-Upstream: http://deb.debian.org/debian/ bookworm
 
 Package: debsig-verify
 Architecture: any
