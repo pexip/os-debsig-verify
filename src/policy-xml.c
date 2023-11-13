@@ -2,7 +2,7 @@
  * debsig-verify - Debian package signature verification tool
  *
  * Copyright © 2000 Ben Collins <bcollins@debian.org>
- * Copyright © 2014, 2016-2017 Guillem Jover <guillem@debian.org>
+ * Copyright © 2014, 2016-2017, 2019, 2021 Guillem Jover <guillem@debian.org>
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,12 +24,13 @@
 
 #include <config.h>
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
+#include <sys/stat.h>
+
 #include <errno.h>
 #include <ctype.h>
-#include <sys/stat.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <obstack.h>
 
 #include <dpkg/dpkg.h>
@@ -191,15 +192,15 @@ startElement(void *userData, const char *name, const char **atts)
 
 
         if (strcmp(name, "Required") == 0) {
-	    cur_m->type = REQUIRED_MATCH;
+	    cur_m->type = MATCH_REQUIRED;
 	    if (cur_m->name == NULL || cur_m->file == NULL)
 		parse_error("Required must have a Type and File attribute");
 	} else if (strcmp(name, "Optional") == 0) {
-	    cur_m->type = OPTIONAL_MATCH;
+	    cur_m->type = MATCH_OPTIONAL;
 	    if (cur_m->name == NULL || cur_m->file == NULL)
 		parse_error("Optional must have a Type and File attribute");
 	} else { /* Reject */
-	    cur_m->type = REJECT_MATCH;
+	    cur_m->type = MATCH_REJECT;
 	    if (cur_m->name == NULL)
 		parse_error("Reject must have a Type attribute");
 	}
@@ -218,8 +219,8 @@ endElement(void *userData, const char *name)
 
 	/* sanity check this block */
 	for (m = cur_grp->matches; m; m = m->next) {
-	    if (m->type == OPTIONAL_MATCH ||
-		m->type == REQUIRED_MATCH)
+	    if (m->type == MATCH_OPTIONAL ||
+		m->type == MATCH_REQUIRED)
 		i++;
 	}
 	if (!i) {

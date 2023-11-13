@@ -11,11 +11,11 @@ Releases
 
 The current legacy, stable and development releases can be found at:
 
-  <http://ftp.debian.org/debian/pool/main/d/debsig-verify/>
+  <https://deb.debian.org/debian/pool/main/d/debsig-verify/>
 
 For older releases check:
 
-  <http://snapshot.debian.org/package/debsig-verify/>
+  <https://snapshot.debian.org/package/debsig-verify/>
 
 
 Mailing List
@@ -33,7 +33,7 @@ The mailing list address is (no subscription required to post):
 Source Repository
 -----------------
 
-The master repository can be browsed and cloned from:
+The primary repository can be browsed and cloned from:
 
   <https://git.dpkg.org/cgit/dpkg/debsig-verify.git>
 
