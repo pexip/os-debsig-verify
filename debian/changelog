@@ -1,3 +1,9 @@
+debsig-verify (0.28+b3pexip1) pexip-bookworm; urgency=medium
+
+  * Bump version to supersede Debian point release binNMU.
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Wed, 13 Dec 2023 12:17:33 +0000
+
 debsig-verify (0.28pexip2) pexip-bookworm; urgency=medium
 
   * Bookworm build for product distribution
