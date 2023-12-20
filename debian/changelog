@@ -1,3 +1,9 @@
+debsig-verify (0.28+b3pexip2) pexip-bookworm; urgency=medium
+
+  * Add support for signing with subkeys, mayching fingerprints
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Wed, 20 Dec 2023 14:56:04 +0000
+
 debsig-verify (0.28+b3pexip1) pexip-bookworm; urgency=medium
 
   * Bump version to supersede Debian point release binNMU.
