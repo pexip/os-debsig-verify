@@ -1,3 +1,9 @@
+debsig-verify (0.28+b3pexip3) pexip-bookworm; urgency=medium
+
+  * Try again - this is a native package, no patches!
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Wed, 20 Dec 2023 15:40:31 +0000
+
 debsig-verify (0.28+b3pexip2) pexip-bookworm; urgency=medium
 
   * Add support for signing with subkeys, mayching fingerprints

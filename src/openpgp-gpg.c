@@ -115,6 +115,7 @@ enum keyid_state {
     KEYID_FPR,
     KEYID_UID,
     KEYID_SIG,
+    KEYID_SUB,
 };
 
 enum colon_fields {
@@ -221,7 +222,7 @@ gpg_getKeyID(const char *keyring, const char *match_id)
 
             /* Certificate found. */
             state = KEYID_PUB;
-        } else if (state == KEYID_PUB) {
+        } else if (state == KEYID_PUB || state == KEYID_SUB) {
             if (!match_prefix(buf, "fpr:"))
 		continue;
             fpr = get_colon_field(buf, COLON_FIELD_FPR_ID);
@@ -241,6 +242,7 @@ gpg_getKeyID(const char *keyring, const char *match_id)
 		continue;
             if (strcmp(uid, match_id) != 0) {
                 free(uid);
+		state = KEYID_SUB;
 		continue;
 	    }
             free(uid);
