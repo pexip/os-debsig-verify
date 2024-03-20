@@ -1,3 +1,9 @@
+debsig-verify (0.28+b3+pexip24u5) pexip; urgency=medium
+
+  * Switch to upstream patch for the subkeys problem.
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Wed, 20 Mar 2024 17:42:35 +0000
+
 debsig-verify (0.28+b3+pexip24u4) pexip-bookworm; urgency=medium
 
   * New versioning scheme
