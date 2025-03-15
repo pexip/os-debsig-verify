@@ -112,6 +112,7 @@ command_gpg_init(struct command *cmd)
 enum keyid_state {
     KEYID_UNKNOWN,
     KEYID_PUB,
+    KEYID_SUB,
     KEYID_FPR,
     KEYID_UID,
     KEYID_SIG,
@@ -221,9 +222,10 @@ gpg_getKeyID(const char *keyring, const char *match_id)
 
             /* Certificate found. */
             state = KEYID_PUB;
-        } else if (state == KEYID_PUB) {
+        } else if (state == KEYID_PUB || state == KEYID_SUB) {
             if (!match_prefix(buf, "fpr:"))
 		continue;
+            free(fpr);
             fpr = get_colon_field(buf, COLON_FIELD_FPR_ID);
             if (eqKeyID(fpr, match_id)) {
                 ret = fpr;
@@ -233,6 +235,10 @@ gpg_getKeyID(const char *keyring, const char *match_id)
         } else if (state == KEYID_FPR) {
             char *uid;
 
+            if (match_prefix(buf, "sub:")) {
+                state = KEYID_SUB;
+                continue;
+            }
             if (!match_prefix(buf, "uid:"))
 		continue;
 
@@ -245,9 +251,11 @@ gpg_getKeyID(const char *keyring, const char *match_id)
 	    }
             free(uid);
 
-            /* Fingerprint match found. */
+            /* ID match found. */
             ret = fpr;
-            break;
+
+            /* But keep going in case we find a subkey fingerprint. */
+            continue;
         }
     }
     fclose(ds);
@@ -257,6 +265,8 @@ gpg_getKeyID(const char *keyring, const char *match_id)
 
     if (ret == NULL) {
 	ds_printf(DS_LEV_DEBUG, "        getKeyID: failed for %s", match_id);
+        /* If we did not find any match release any parsed fingerprint. */
+        free(fpr);
     } else {
 	ds_printf(DS_LEV_DEBUG, "        getKeyID: mapped %s -> %s", match_id, ret);
     }
@@ -366,9 +376,7 @@ gpg_getSigKeyID(struct dpkg_ar *deb, const char *name)
     else
 	ds_printf(DS_LEV_DEBUG, "        getSigKeyID: got %s for %s key", ret, name);
 
-    if (ret)
-      return strdup(ret);
-    return NULL;
+    return ret;
 }
 
 static int
@@ -383,7 +391,7 @@ gpg_sigVerify(const char *keyring, const char *data, const char *sig)
     if (pid == 0) {
         struct command cmd;
 
-	if (DS_LEV_DEBUG < ds_debug_level) {
+        if (ds_debug_level > DS_LEV_DEBUG) {
 	    close(0); close(1); close(2);
 	}
 

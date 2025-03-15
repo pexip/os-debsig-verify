@@ -14,6 +14,7 @@ export TZ
 TESTDATA="@abs_top_srcdir@/test"
 TESTPOLICIES="$TESTDATA/policies"
 TESTKEYRINGS="$TESTDATA/keyrings"
+# Default key
 TESTFPRID="B2551A215CE5C74584C6AE0DE9F3837DB59CDACD"
 TESTKEYID="$(echo $TESTFPRID | cut -c25-)"
 
@@ -24,13 +25,21 @@ debsig_stub ()
   :
 }
 
-if command -v sqop >/dev/null; then
+SOP=
+for sop in sqop rsop gosop pgpainless-cli; do
+  if command -v $sop >/dev/null; then
+    SOP=$sop
+    break
+  fi
+done
+
+if [ -n "$SOP" ]; then
   alias debsig_openpgp_setup=debsig_stub
   alias debsig_openpgp_teardown=debsig_stub
 
   debsig_openpgp_detach_sign ()
   {
-    sqop sign --no-armor $TESTKEYRINGS/$TESTFPRID/secring.pgp
+    $SOP sign --no-armor $TESTKEYRINGS/$TESTFPRID/secring.pgp
   }
 elif command -v sq >/dev/null; then
   alias debsig_openpgp_setup=debsig_stub
@@ -38,7 +47,8 @@ elif command -v sq >/dev/null; then
 
   debsig_openpgp_detach_sign ()
   {
-    sq sign --detached --signer-key $TESTKEYRINGS/$TESTFPRID/secring.pgp
+    sq sign --signer-file $TESTKEYRINGS/$TESTFPRID/secring.pgp \
+            --signature-file -
   }
 elif command -v gpg >/dev/null; then
   GPG=gpg
@@ -88,6 +98,14 @@ else
   echo "error: cannot find an OpenPGP backend" >&2
 fi
 
+debsig_use_key ()
+{
+  local fprid="$1"
+
+  TESTFPRID="$fprid"
+  TESTKEYID="$(echo $TESTFPRID | cut -c25-)"
+}
+
 debsig_make_deb ()
 {
   local debname="$1"
@@ -106,7 +124,7 @@ Description: Signature Test Package
 EOF
   mkdir -p $debdir/usr/share/doc/
   echo "Debsig testing deb" > $debdir/usr/share/doc/README
-  dpkg-deb -b "$debdir" "$debpkg"
+  dpkg-deb --root-owner-group -b "$debdir" "$debpkg"
 }
 
 debsig_make_sig_bad ()

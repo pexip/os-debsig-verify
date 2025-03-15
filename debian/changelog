@@ -1,3 +1,68 @@
+debsig-verify (0.33) unstable; urgency=medium
+
+  * Build system:
+    - Terminate lists in variables with «# EOL».
+  * Packaging:
+    - Switch to Standards-Version 4.7.2 (no changes needed).
+  * Test suite:
+    - Fix «sq sign» invocation with CLI version 1.0.
+
+ -- Guillem Jover <guillem@debian.org>  Sat, 15 Mar 2025 02:57:03 +0100
+
+debsig-verify (0.32) unstable; urgency=medium
+
+  * Fix OpenPGP implementation array traversal.
+  * Documentation:
+    - Update TODO.
+  * Packaging:
+    - Switch to Standards-Version 4.7.1 (no changes needed).
+    - Add <!nocheck> Build-Depends on gpg | gpg-from-sq to run debsig-verify.
+  * Test suite:
+    - Pass --root-owner-group to dpkg-deb.
+
+ -- Guillem Jover <guillem@debian.org>  Sat, 22 Feb 2025 14:24:41 +0100
+
+debsig-verify (0.31) unstable; urgency=medium
+
+  * Code internals:
+    - Use DS_LEV_INFO instead of a hardcoded value.
+    - Swap order of ds_debug_level in boolean comparisons.
+    - Change ds_printf() to return early on too low debug level.
+  * Packaging:
+    - Drop gnupg and gnupg-agent as alternatives to gpg and gpg-agent.
+  * Test suite:
+    - Generalize SOP support to include rsop, gosop and pgpainless-cli.
+    - Adapt to new sq CLI 0.40.0 API.
+
+ -- Guillem Jover <guillem@debian.org>  Sun, 22 Dec 2024 01:04:22 +0100
+
+debsig-verify (0.30) unstable; urgency=medium
+
+  * Add OpenPGP subkey support.
+    Based on a patch by Steve McIntyre <steve@einval.com>. Closes: #1059150
+  * Switch from pkg-config to pkgconf.
+  * Documentation:
+    - doc: Bump required C compiler to support C99.
+  * Packaging:
+    - Update copyright years.
+  * Test suite:
+    - Add new macro to set the OpenPGP key to use.
+    - Switch to use sq --signer-file.
+
+ -- Guillem Jover <guillem@debian.org>  Mon, 08 Apr 2024 04:53:04 +0200
+
+debsig-verify (0.29) unstable; urgency=medium
+
+  * Code internals:
+    - openpgp-gpg: Free fpr if there is no match in gpg_getKeyID().
+    - openpgp-gpg: Do not duplicate the returned value in gpg_getSigKeyID().
+    - Rename find_command() to command_in_path() to match libdpkg.
+    - Rename misc.c to debug.c.
+  * Build system:
+    - Use command_in_path() from libdpkg.
+
+ -- Guillem Jover <guillem@debian.org>  Sat, 09 Sep 2023 21:21:04 +0200
+
 debsig-verify (0.28) unstable; urgency=medium
 
   * Add support for zstd compressed .deb archives.
