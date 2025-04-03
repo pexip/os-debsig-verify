@@ -35,6 +35,13 @@ static const struct openpgp *openpgp_impl[] = {
 	NULL,
 };
 
+const struct signature_check sig_types[] =
+{
+    { SUM_SHA512, "sha512 checksum", "_sha512%s", },
+    { SUM_SHA256, "sha256 checksum", "_sha256%s", },
+    { PGP_DIRECT, "direct PGP", "_gpg%s", },
+};
+
 static const struct openpgp *
 getOpenPGP(void)
 {
@@ -135,18 +142,31 @@ getSigKeyID(struct dpkg_ar *deb, const char *name)
 }
 
 off_t
-checkSigExist(struct dpkg_ar *deb, const char *name)
+checkSigExist(struct dpkg_ar *deb, const char *name, enum signature_type *sigtype)
 {
-	char buf[16];
+    char buf[SIGFILE_NAME_LEN];
+    off_t member = 0;
+    int sig = 0;
 
-	if (name == NULL) {
-		ds_printf(DS_LEV_DEBUG, "checkSigExist: NULL values passed");
-		return 0;
-	}
+    if (name == NULL || sigtype == NULL) {
+        ds_printf(DS_LEV_DEBUG, "checkSigExist: NULL values passed");
+        return 0;
+    }
 
-	snprintf(buf, sizeof(buf) - 1, "_gpg%s", name);
+    *sigtype = 0;
 
-	return findMember(deb, buf);
+    for (sig = 0; sig < NUM_SIGNATURE_TYPES; sig++) {
+        snprintf(buf, sizeof(buf) - 1, sig_types[sig].name_format, name);
+        member = findMember(deb, buf);
+        if (member) {
+            ds_printf(DS_LEV_DEBUG, "checkSigExist: found a %s signature file, len %jd",
+                      sig_types[sig].signame, member);
+            *sigtype = sig;
+            return member;
+        }
+    }
+
+    return 0;
 }
 
 int
@@ -155,4 +175,12 @@ sigVerify(const char *keyring, const char *data, const char *sig)
 	const struct openpgp *openpgp = getOpenPGP();
 
 	return openpgp->sigVerify(keyring, data, sig);
+}
+
+int
+sigVerifyInline(const char *keyring, const char *data, const char *compare)
+{
+	const struct openpgp *openpgp = getOpenPGP();
+
+	return openpgp->sigVerifyInline(keyring, data, compare);
 }

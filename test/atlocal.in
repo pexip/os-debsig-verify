@@ -84,6 +84,11 @@ elif command -v gpg >/dev/null; then
   {
     $GPG $GPGOPTS --detach-sig
   }
+
+  debsig_openpgp_clear_sign()
+  {
+    $GPG $GPGOPTS --clear-sign
+  }
 else
   echo "error: cannot find an OpenPGP backend" >&2
 fi
@@ -121,20 +126,46 @@ debsig_make_sig_bad ()
 {
   local debpkg="$1_$2.deb"
 
-  # Add a bogus signature to a .deb package.
+  # Add a bogus direct PGP signature to a .deb package.
   debsig_openpgp_setup
   debsig_openpgp_detach_sign >_gpgorigin <"$debpkg"
   ar q "$debpkg" _gpgorigin
   debsig_openpgp_teardown
 }
 
+debsig_make_sha256_sig_bad ()
+{
+  local debpkg="$1_$2.deb"
+  local size=$(stat -c '%s' $debpkg)
+
+  # Add a bogus signed sha256sum to a .deb package.
+  debsig_openpgp_setup
+  echo "$size:BOGUS" | debsig_openpgp_clear_sign >_sha256origin
+  ar q "$debpkg" _sha256origin
+  debsig_openpgp_teardown
+  echo "RUNNNNNNNNNNNN"
+}
+
 debsig_make_sig ()
 {
   local debpkg="$1_$2.deb"
 
-  # Add signature to a .deb package.
+  # Add a correct direct PGP signature to a .deb package.
   debsig_openpgp_setup
   ar p "$debpkg" | debsig_openpgp_detach_sign >_gpgorigin
   ar q "$debpkg" _gpgorigin
+  debsig_openpgp_teardown
+}
+
+debsig_make_sha512_sig ()
+{
+  local debpkg="$1_$2.deb"
+  local size=$(ar tv "$debpkg" | awk '{size+=$3};END{print size}')
+  local sum=$(ar p "$debpkg" | sha512sum | awk '{print $1}')
+
+  # Add a correct signed sha512sum to a .deb package.
+  debsig_openpgp_setup
+  echo "$size:$sum" | debsig_openpgp_clear_sign > _sha512origin
+  ar q "$debpkg" _sha512origin
   debsig_openpgp_teardown
 }

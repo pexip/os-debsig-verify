@@ -29,15 +29,18 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <sha256.h>
+#include <sha512.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 
 #include <dpkg/dpkg.h>
+#include <dpkg/error.h>
+#include <dpkg/fdio.h>
 #include <dpkg/string.h>
 #include <dpkg/path.h>
-#include <dpkg/buffer.h>
 
 #include "debsig.h"
 
@@ -56,12 +59,37 @@ static const char *ver_data_members[] = {
 	DTAR(), DTAR(.gz), DTAR(.xz), DTAR(.zst), DTAR(.bz2), DTAR(.lzma), NULL
 };
 
+/* The ar format specifies a maximum size of 9,999,999,999 per
+   member. so 10 digits per member. We will be be checking 3 of those
+   members, so our absolute maximum is 3 times that which may take 11
+   digits.
+*/
+#define AR_MAX_SIZE 11
+struct checksums {
+    struct {
+        SHA256_CTX ctx;
+        unsigned char result[SHA256_DIGEST_LENGTH];
+        /* Space for 11 chars of data size, ":", then the hex
+         * representation of the checksum */
+        char text[11 + 2 + 2*SHA256_DIGEST_LENGTH];
+    } sha256;
+    struct {
+        SHA512_CTX ctx;
+        unsigned char result[SHA512_DIGEST_LENGTH];
+        /* Space for 10 chars of data size, ":", then the hex
+         * representation of the checksum */
+        char text[11 + 2 + 2* SHA512_DIGEST_LENGTH];
+    } sha512;
+};
+
 static int
-checkSelRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
+checkSelRules(struct dpkg_ar *deb, const char *originID, struct group *grp, bool sigs[NUM_SIGNATURE_TYPES])
 {
     int opt_count = 0;
     struct match *mtc;
     int len;
+    enum signature_type sig_type;
+    memset(sigs, 0, (NUM_SIGNATURE_TYPES * sizeof(bool)));
 
     for (mtc = grp->matches; mtc; mtc = mtc->next) {
         char *keyring;
@@ -101,7 +129,7 @@ checkSelRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
               return 0;
         }
 
-        len = checkSigExist(deb, mtc->name);
+        len = checkSigExist(deb, mtc->name, &sig_type);
 
         /* If the member exists and we reject it, fail now. Also, if it
          * doesn't exist, and we require it, fail as well. */
@@ -112,6 +140,9 @@ checkSelRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
         /* This would mean this is Optional, so we ignore it for now */
         if (!len)
             continue;
+
+        sigs[sig_type] = true;
+        ds_printf(DS_LEV_VER, "      Found a %s sig file.", sig_types[sig_type].signame);
 
         /* Kick up the count once for checking later */
         if (mtc->type == MATCH_OPTIONAL)
@@ -127,15 +158,92 @@ checkSelRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
     return 1;
 }
 
-static int
-verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
+static off_t
+copyData(int in_fd, int tmp_data_fd, off_t len, bool signature_types[], struct checksums *csums)
 {
-    struct dpkg_error err;
-    char *tmp_sig, *tmp_data;
+    unsigned char *buf;
+    int bufsize = 32 * 1024;
+    off_t bytesread = 0, byteswritten = 0;
+    off_t totalread = 0, totalwritten = 0;
+
+    if ((len != -1) && (len < bufsize))
+        bufsize = len;
+    if (bufsize == 0)
+        buf = NULL;
+    else
+        buf = m_malloc(bufsize);
+
+    while (bufsize > 0) {
+        bytesread = fd_read(in_fd, buf, bufsize);
+        if (bytesread < 0)
+            break;
+        if (bytesread == 0)
+            break;
+
+        totalread += bytesread;
+
+        if (len != -1) {
+            len -= bytesread;
+            if (len < bufsize)
+                bufsize = len;
+        }
+
+        /* Update checksum(s) if we're using them. */
+        if (csums && signature_types[SUM_SHA256])
+            SHA256_Update(&csums->sha256.ctx, buf, bytesread);
+        if (csums && signature_types[SUM_SHA512])
+            SHA512_Update(&csums->sha512.ctx, buf, bytesread);
+
+        /* Update our temporary file if we're using direct
+         * signing. */
+        if (tmp_data_fd != -1) {
+            byteswritten = fd_write(tmp_data_fd, buf, bytesread);
+            if (byteswritten < 0)
+                break;
+            if (byteswritten == 0)
+                break;
+        }
+        else
+            byteswritten = bytesread;
+
+        totalwritten += byteswritten;
+    }
+
+    free(buf);
+
+    if (bytesread < 0 || byteswritten < 0)
+        return -1;
+    if (totalread != totalwritten)
+        return -1;
+
+    return totalread;
+}
+
+static void
+hex_dump_to_buffer(char *output_buffer, unsigned char *buf, size_t buf_size)
+{
+    unsigned int i;
+    char *p = output_buffer;
+
+    memset(output_buffer, 0, 1 + (2*buf_size));
+    for (i = 0; i < buf_size ; i++)
+        p += sprintf(p, "%2.2x", buf[i]);
+}
+
+static int
+verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp, bool signature_types[])
+{
+    char *tmp_sig = NULL;
+    int tmp_sig_fd = -1;
+    char *tmp_data = NULL;
+    int tmp_data_fd = -1;
     char *keyring = NULL;
-    int opt_count = 0, t, i, fd;
+    enum signature_type sig_type;
+    int opt_count = 0, t, i;
     struct match *mtc;
     off_t len;
+    off_t total_len = 0;
+    struct checksums csums;
 
     /* Set umask for a more controlled environment. */
     umask(022);
@@ -144,55 +252,93 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
      * take-all rules. This actually gets checked while we parse the
      * policy file, but we check again for good measure.  */
     if (grp->matches == NULL)
-	return 0;
+        return 0;
 
-    /* Go ahead and write out our data to a temp file */
-    tmp_data = path_make_temp_template("debsig-data");
-    if ((fd = mkstemp(tmp_data)) == -1) {
-	ds_printf(DS_LEV_ERR, "error creating temp file %s: %s\n",
-		  tmp_data, strerror(errno));
-	free(tmp_data);
-	return 0;
+    /*
+     * If we're doing direct PGP verification of data, cat all our
+     * data into a single temp file. This is what we pass to the
+     * OpenPGP implementation.
+     */
+    if (signature_types[PGP_DIRECT]) {
+        tmp_data = path_make_temp_template("debsig-data");
+        if ((tmp_data_fd = mkstemp(tmp_data)) == -1) {
+            ds_printf(DS_LEV_ERR, "error creating temp file %s: %s\n",
+                  tmp_data, strerror(errno));
+            free(tmp_data);
+            return 0;
+        }
     }
 
-    /* Now, let's find all the members we need to check and cat them into a
-     * single temp file. This is what we pass to the OpenPGP implementation. */
+    /* Start checksum operations too, if we're doing checksum-based
+     * signing. */
+    if (signature_types[SUM_SHA256])
+        SHA256_Init(&csums.sha256.ctx);
+    if (signature_types[SUM_SHA512])
+        SHA512_Init(&csums.sha512.ctx);
+
+    /* Now, let's find all the members we need to check. */
     if (!(len = findMember(deb, ver_magic_member)))
         goto fail_and_close;
-    len = fd_fd_copy(deb->fd, fd, len, &err);
+
+    len = copyData(deb->fd, tmp_data_fd, len, signature_types, &csums);
     if (len < 0)
-	ohshit("verifyGroupRules: cannot copy to temp file: %s", err.str);
+        ohshit("verifyGroupRules: cannot copy data: %s", strerror(errno));
+    total_len += len;
 
     for (i = 0; ver_ctrl_members[i]; i++) {
-	len = findMember(deb, ver_ctrl_members[i]);
-	if (!len)
-	    continue;
-	len = fd_fd_copy(deb->fd, fd, len, &err);
-	if (len < 0)
-	    ohshit("verifyGroupRules: cannot copy to temp file: %s", err.str);
-	break;
+        len = findMember(deb, ver_ctrl_members[i]);
+        if (!len)
+            continue;
+        len = copyData(deb->fd, tmp_data_fd, len, signature_types, &csums);
+        if (len < 0)
+            ohshit("verifyGroupRules: cannot copy data: %s", strerror(errno));
+        total_len += len;
+        break;
     }
     if (!ver_ctrl_members[i])
-	goto fail_and_close;
+        goto fail_and_close;
 
     for (i = 0; ver_data_members[i]; i++) {
-	len = findMember(deb, ver_data_members[i]);
-	if (!len)
-	    continue;
-	len = fd_fd_copy(deb->fd, fd, len, &err);
-	if (len < 0)
-	    ohshit("verifyGroupRules: cannot copy to temp file: %s", err.str);
-	break;
+        len = findMember(deb, ver_data_members[i]);
+        if (!len)
+            continue;
+        len = copyData(deb->fd, tmp_data_fd, len, signature_types, &csums);
+        if (len < 0)
+            ohshit("verifyGroupRules: cannot copy data: %s", strerror(errno));
+        total_len += len;
+        break;
     }
     if (!ver_data_members[i])
-	goto fail_and_close;
+        goto fail_and_close;
 
-    if (close(fd))
+    if (tmp_data_fd != -1 && close(tmp_data_fd))
         ohshite("error closing temp file %s", tmp_data);
-    fd = -1;
+    tmp_data_fd = -1;
+
+    /* Sanity check (11 digits: 99 999 999 999) - should never trigger
+     * here due to the limitations of the ar format. */
+    if (total_len > 99999999999) {
+        ds_printf(DS_LEV_DEBUG, "verifyGroupRules: data size %jd too big!", total_len);
+        goto fail_and_close;
+    }
+
+    /* Finish checksum operations too, if we're doing checksum-based
+     * signing. */
+    if (signature_types[SUM_SHA256]) {
+        char *textptr = csums.sha256.text;
+        textptr += sprintf(textptr, "%jd:", total_len);
+        SHA256_Final(csums.sha256.result, &csums.sha256.ctx);
+        hex_dump_to_buffer(textptr, csums.sha256.result, SHA256_DIGEST_LENGTH);
+    }
+    if (signature_types[SUM_SHA512]) {
+        char *textptr = csums.sha512.text;
+        textptr += sprintf(textptr, "%jd:", total_len);
+        SHA512_Final(csums.sha512.result, &csums.sha512.ctx);
+        hex_dump_to_buffer(textptr, csums.sha512.result, SHA512_DIGEST_LENGTH);
+    }
 
     for (mtc = grp->matches; mtc; mtc = mtc->next) {
-	ds_printf(DS_LEV_VER, "      Processing '%s' key...", mtc->name);
+        ds_printf(DS_LEV_VER, "      Processing '%s' key...", mtc->name);
 
         /* Get the keyring we might need to use multiple times. */
         keyring = getDbPathname(rootdir, keyrings_dir, originID, mtc->file);
@@ -201,75 +347,91 @@ verifyGroupRules(struct dpkg_ar *deb, const char *originID, struct group *grp)
             goto fail_and_close;
         }
 
-	/* If we have an ID for this match, check to make sure it exists, and
-	 * matches the signature we are about to check.  */
-	if (mtc->id) {
-	    char *m_id = getKeyID(keyring, mtc->id);
-	    char *d_id = getSigKeyID(deb, mtc->name);
+        /* If we have an ID for this match, check to make sure it exists, and
+         * matches the signature we are about to check.  */
+        if (mtc->id) {
+            char *m_id = getKeyID(keyring, mtc->id);
+            char *d_id = getSigKeyID(deb, mtc->name);
             bool is_same_id = eqKeyID(m_id, d_id);
 
             free(m_id);
             free(d_id);
 
             if (!is_same_id)
-		goto fail_and_close;
-	}
+                goto fail_and_close;
+        }
 
-	/* This will also position deb->fd to the start of the member. */
-	len = checkSigExist(deb, mtc->name);
+        /* This will also position deb->fd to the start of the member. */
+        len = checkSigExist(deb, mtc->name, &sig_type);
 
-	/* If the member exists and we reject it, die now. Also, if it
-	 * doesn't exist, and we require it, die as well. */
-	if ((!len && mtc->type == MATCH_REQUIRED) ||
-	    (len && mtc->type == MATCH_REJECT)) {
-	    goto fail_and_close;
-	}
+        /* If the member exists and we reject it, die now. Also, if it
+         * doesn't exist, and we require it, die as well. */
+        if ((!len && mtc->type == MATCH_REQUIRED) ||
+            (len && mtc->type == MATCH_REJECT)) {
+            goto fail_and_close;
+        }
 
-	/* This would mean this is Optional, so we ignore it for now */
-	if (!len)
+        /* This would mean this is Optional, so we ignore it for now */
+        if (!len)
             continue;
 
-	/* let's get our temp file */
-	tmp_sig = path_make_temp_template("debsig-sig");
-	if ((fd = mkstemp(tmp_sig)) == -1) {
-	    ds_printf(DS_LEV_ERR, "error creating temp file %s: %s\n",
-		      tmp_sig, strerror(errno));
-	    goto fail_and_close;
-	}
+        /* Write the signature data out to a temporary file, ready to
+         * pass to the openpgp implementation. */
+        tmp_sig = path_make_temp_template("debsig-sig");
+        if ((tmp_sig_fd = mkstemp(tmp_sig)) == -1) {
+            ds_printf(DS_LEV_ERR, "error creating temp file %s: %s\n",
+                      tmp_sig, strerror(errno));
+            goto fail_and_close;
+        }
 
-	len = fd_fd_copy(deb->fd, fd, len, &err);
-	if (len < 0)
-	    ohshit("verifyGroupRules: cannot copy to temp file: %s", err.str);
+        /* Pass NULL for the checksum contexts here so we do *not*
+         * attempt to update checksums here - they're just for the
+         * data, not the signature itself. */
+        len = copyData(deb->fd, tmp_sig_fd, len, signature_types, NULL);
+        if (len < 0)
+            ohshit("verifyGroupRules: cannot copy to temp file: %s", strerror(errno));
 
-	if (close(fd) < 0)
-	    ohshit("error closing temp file %s", tmp_sig);
+        if (close(tmp_sig_fd) < 0)
+            ohshit("error closing temp file %s", tmp_sig);
 
-	/* Now, let's check with an OpenPGP implementation on this one. */
-	t = sigVerify(keyring, tmp_data, tmp_sig);
-
+        /* Now, let's check the signature with our OpenPGP
+         * implementation. */
+        switch (sig_type) {
+            case PGP_DIRECT:
+                t = sigVerify(keyring, tmp_data, tmp_sig);
+                break;
+            case SUM_SHA256:
+                t = sigVerifyInline(keyring, tmp_sig, csums.sha256.text);
+                break;
+            case SUM_SHA512:
+                t = sigVerifyInline(keyring, tmp_sig, csums.sha512.text);
+                break;
+            default:
+                ohshit("verifyGroupRules: unexpected signature type %d", sig_type);
+        }
         free(keyring);
         keyring = NULL;
 
-	fd = -1;
-	unlink(tmp_sig);
-	free(tmp_sig);
+        tmp_sig_fd = -1;
+        unlink(tmp_sig);
+        free(tmp_sig);
 
-	/* We fail no matter what now. Even if this is an optional match
-	 * rule, by now, we know that the sig exists, so we must fail */
-	if (!t) {
-	    ds_printf(DS_LEV_DEBUG, "verifyGroupRules: failed for %s", mtc->name);
-	    goto fail_and_close;
-	}
+        /* We fail no matter what now. Even if this is an optional match
+         * rule, by now, we know that the sig exists, so we must fail */
+        if (!t) {
+            ds_printf(DS_LEV_DEBUG, "verifyGroupRules: failed for %s", mtc->name);
+            goto fail_and_close;
+        }
 
-	/* Kick up the count once for checking later */
-	if (mtc->type == MATCH_OPTIONAL)
-	    opt_count++;
+        /* Kick up the count once for checking later */
+        if (mtc->type == MATCH_OPTIONAL)
+            opt_count++;
     }
 
     if (opt_count < grp->min_opt) {
-	ds_printf(DS_LEV_DEBUG, "verifyGroupRules: opt passed - %d, opt required %d",
-		  opt_count, grp->min_opt);
-	goto fail_and_close;
+        ds_printf(DS_LEV_DEBUG, "verifyGroupRules: opt passed - %d, opt required %d",
+                  opt_count, grp->min_opt);
+        goto fail_and_close;
     }
 
     unlink(tmp_data);
@@ -280,8 +442,10 @@ fail_and_close:
     unlink(tmp_data);
     free(tmp_data);
     free(keyring);
-    if (fd != -1)
-	close(fd);
+    if (tmp_sig_fd != -1)
+        close(tmp_sig_fd);
+    if (tmp_data_fd != -1)
+        close(tmp_data_fd);
     return 0;
 }
 
@@ -381,6 +545,7 @@ main(int argc, char *argv[])
     struct dirent *pd_ent;
     struct group *grp;
     int i, list_only = 0;
+    bool signature_types [NUM_SIGNATURE_TYPES] = {false};
 
     dpkg_set_progname(argv[0]);
 
@@ -490,6 +655,7 @@ main(int argc, char *argv[])
     while ((pd_ent = readdir(pd)) != NULL && (pol == NULL || list_only)) {
         free(pol_file);
         pol_file = NULL;
+	bool sig_types_this_policy [NUM_SIGNATURE_TYPES] = {false};
 
 	/* Make sure we have the right name format */
 	if (!str_match_end(pd_ent->d_name, ".pol"))
@@ -509,7 +675,7 @@ main(int argc, char *argv[])
 	/* Now let's see if this policy's selection is useful for this .deb  */
 	ds_printf(DS_LEV_VER, "    Checking Selection group(s).");
 	for (grp = pol->sels; grp != NULL; grp = grp->next) {
-	    if (!checkSelRules(deb, originID, grp)) {
+	    if (!checkSelRules(deb, originID, grp, sig_types_this_policy)) {
 		clear_policy();
 		ds_printf(DS_LEV_VER, "    Selection group failed checks.");
 		pol = NULL;
@@ -520,8 +686,15 @@ main(int argc, char *argv[])
 	if (pol && list_only) {
 	    ds_printf(DS_LEV_ALWAYS, "    Usable: %s", pd_ent->d_name);
 	    list_only++;
-	} else if (pol)
+	} else if (pol) {
 	    ds_printf(DS_LEV_VER, "    Selection group(s) passed, policy is usable.");
+	    /* Update the global state of which signature types we're
+	     * using. */
+	    for (i = 0; i < NUM_SIGNATURE_TYPES; i++) {
+	        if (sig_types_this_policy[i])
+                    signature_types[i] = true;
+	    }
+	}
     }
     closedir(pd);
 
@@ -544,7 +717,7 @@ main(int argc, char *argv[])
     ds_printf(DS_LEV_VER, "    Checking Verification group(s).");
 
     for (grp = pol->vers; grp; grp = grp->next) {
-	if (!verifyGroupRules(deb, originID, grp)) {
+	if (!verifyGroupRules(deb, originID, grp, signature_types)) {
 	    ds_printf(DS_LEV_VER, "    Verification group failed checks.");
 	    ds_fail_printf(DS_FAIL_BADSIG, "Failed verification for %s.", deb->name);
 	}

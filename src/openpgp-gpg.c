@@ -280,7 +280,8 @@ gpg_getSigKeyID(struct dpkg_ar *deb, const char *name)
     ssize_t nread;
     struct dpkg_error err;
     int pread[2], pwrite[2];
-    off_t len = checkSigExist(deb, name);
+    enum signature_type sig_type;
+    off_t len = checkSigExist(deb, name, &sig_type);
     pid_t pid;
     FILE *ds_read;
     char *ret = NULL;
@@ -318,7 +319,9 @@ gpg_getSigKeyID(struct dpkg_ar *deb, const char *name)
 	command_gpg_init(&cmd);
 	command_add_args(&cmd, "--keyring", "/dev/null", NULL);
 	command_add_args(&cmd, "--status-fd", "1", NULL);
-	command_add_args(&cmd, "--verify", "-", "/dev/null", NULL);
+	command_add_args(&cmd, "--verify", "-", NULL);
+	if (sig_type == PGP_DIRECT)
+            command_add_args(&cmd, "/dev/null", NULL);
 	command_exec(&cmd);
     }
     close(pread[1]); close(pwrite[0]);
@@ -409,9 +412,90 @@ gpg_sigVerify(const char *keyring, const char *data, const char *sig)
     return 1;
 }
 
+static int
+gpg_sigVerifyInline(const char *keyring, const char *sig, const char *compare)
+{
+    char *buf = NULL;
+    size_t buflen = 0;
+    ssize_t nread;
+    int pread[2], pwrite[2];
+    pid_t pid;
+    FILE *ds_read;
+    int rc = 0;
+    int compare_ok = 0;
+
+    gpg_init();
+
+    /* Fork for gpg, keeping a nice pipe to read/write from.  */
+    if (pipe(pread) < 0)
+        ohshite("error creating a pipe");
+    if (pipe(pwrite) < 0)
+        ohshite("error creating a pipe");
+    /* I like file streams, so sue me :P */
+    if ((ds_read = fdopen(pread[0], "r")) == NULL)
+        ohshite("error opening file stream for gpg");
+
+    pid = subproc_fork();
+    if (pid == 0) {
+        struct command cmd;
+        int null_fd;
+
+        /* Here we go */
+        m_dup2(pread[1], 1);
+        close(pread[0]);
+        close(pread[1]);
+        m_dup2(pwrite[0], 0);
+        close(pwrite[0]);
+        close(pwrite[1]);
+
+        null_fd = open("/dev/null", O_WRONLY);
+        m_dup2(null_fd, STDERR_FILENO);
+
+        command_gpg_init(&cmd);
+        command_add_args(&cmd, "--keyring", keyring, "--decrypt", sig, NULL);
+        command_exec(&cmd);
+    }
+    close(pread[1]); close(pwrite[0]);
+
+    if (close(pwrite[1]) < 0)
+        ohshite("getSigKeyID: error closing gpg write pipe");
+
+    /* Now, let's grab and compare the output from gpg. There should
+     * just be a single line with our signed size:checksum data. */
+    while ((nread = getline(&buf, &buflen, ds_read)) >= 0) {
+        if (buf[nread - 1] != '\n') {
+            ds_printf(DS_LEV_DEBUG, "        getKeyID: found truncated input from GnuPG, aborting");
+            break;
+        }
+        buf[nread - 1] = '\0';
+        if (strcasecmp(buf, compare)) {
+            ds_printf(DS_LEV_DEBUG, "sigVerifyInline: comparison failed");
+            ds_printf(DS_LEV_DEBUG, "sigVerifyInline: Expecting %s", compare);
+            ds_printf(DS_LEV_DEBUG, "sigVerifyInline: Found %s", buf);
+            break;
+        }
+        /* else */
+        ds_printf(DS_LEV_DEBUG, "sigVerifyInline: comparison matched");
+        compare_ok = 1;
+    }
+    if (ferror(ds_read))
+    ohshit("error reading from gpg");
+    fclose(ds_read);
+    free(buf);
+
+    rc = subproc_reap(pid, "sigVerifyInline", SUBPROC_RETERROR | SUBPROC_RETSIGNO);
+    if (rc != 0) {
+        ds_printf(DS_LEV_DEBUG, "sigVerifyInline: gpg exited abnormally or with non-zero exit status");
+        return 0;
+    }
+
+    return compare_ok;
+}
+
 const struct openpgp openpgp_gpg = {
 	.cmd = "gpg",
 	.getKeyID = gpg_getKeyID,
 	.getSigKeyID = gpg_getSigKeyID,
 	.sigVerify = gpg_sigVerify,
+	.sigVerifyInline = gpg_sigVerifyInline,
 };

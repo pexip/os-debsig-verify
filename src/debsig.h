@@ -31,6 +31,22 @@ enum match_type {
 	MATCH_REJECT = 3,
 };
 
+/* Types of signature supported/found, in preference order for
+ * checking */
+enum signature_type {
+	SUM_SHA512 = 0,
+	SUM_SHA256 = 1,
+	PGP_DIRECT = 2,
+};
+
+#define NUM_SIGNATURE_TYPES (PGP_DIRECT + 1)
+
+struct signature_check {
+	enum signature_type type;
+	char *signame;
+	char *name_format;
+};
+
 struct match {
         struct match *next;
 	enum match_type type;
@@ -58,23 +74,27 @@ typedef char *getKeyID_func(const char *keyring, const char *match_id);
 typedef char *getSigKeyID_func(struct dpkg_ar *deb, const char *name);
 typedef int sigVerify_func(const char *keyring,
                            const char *data, const char *sig);
+typedef int sigVerifyInline_func(const char *keyring,
+				 const char *sig, const char * compare);
 
 struct openpgp {
 	const char *cmd;
 	getKeyID_func *getKeyID;
 	getSigKeyID_func *getSigKeyID;
 	sigVerify_func *sigVerify;
+	sigVerifyInline_func *sigVerifyInline;
 };
 
 #define OPENPGP_FPR_LEN 40
 #define OPENPGP_KEY_LEN 16
+#define SIGFILE_NAME_LEN 16
 
 struct policy *
 parsePolicyFile(const char *filename);
 off_t
 findMember(struct dpkg_ar *deb, const char *name);
 off_t
-checkSigExist(struct dpkg_ar *deb, const char *name);
+checkSigExist(struct dpkg_ar *deb, const char *name, enum signature_type *type);
 char *
 getDbPathname(const char *rootdir, const char *dir, const char *id,
               const char *filename);
@@ -86,6 +106,8 @@ getSigKeyID_func
 getSigKeyID;
 sigVerify_func
 sigVerify;
+sigVerifyInline_func
+sigVerifyInline;
 
 void
 clear_policy(void);
@@ -118,3 +140,4 @@ extern int ds_debug_level;
 extern const char *rootdir;
 extern const char *policies_dir;
 extern const char *keyrings_dir;
+extern const struct signature_check sig_types[];
