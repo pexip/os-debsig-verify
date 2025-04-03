@@ -88,6 +88,14 @@ else
   echo "error: cannot find an OpenPGP backend" >&2
 fi
 
+debsig_use_key ()
+{
+  local fprid="$1"
+
+  TESTFPRID="$fprid"
+  TESTKEYID="$(echo $TESTFPRID | cut -c25-)"
+}
+
 debsig_make_deb ()
 {
   local debname="$1"
