@@ -122,6 +122,19 @@ EOF
   dpkg-deb -b "$debdir" "$debpkg"
 }
 
+debsig_make_invalid_deb()
+{
+  local debname="$1"
+  local debversion="$2"
+  local debpkg="$1_$2.deb"
+
+  debsig_make_deb "$debname" "$debversion"
+
+  # Add a bogus extra data member to a valid deb
+  echo "BOGUS" > data.tar.zst
+  ar q "$debpkg" data.tar.zst
+}
+
 debsig_make_sig_bad ()
 {
   local debpkg="$1_$2.deb"

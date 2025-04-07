@@ -454,29 +454,44 @@ checkIsDeb(struct dpkg_ar *deb)
 {
     int i;
     const char *member;
+    int num_members;
 
     if (!findMember(deb, ver_magic_member)) {
        ds_printf(DS_LEV_VER, "Missing archive magic member %s", ver_magic_member);
        return 0;
     }
 
+    num_members = 0;
     for (i = 0; (member = ver_ctrl_members[i]); i++)
         if (findMember(deb, member))
-            break;
-    if (!member) {
+            num_members++;
+
+    if (!num_members) {
         ds_printf(DS_LEV_VER, "Missing archive control member, checked:");
         for (i = 0; (member = ver_ctrl_members[i]); i++)
             ds_printf(DS_LEV_VER, "    %s", member);
         return 0;
     }
 
+    if (num_members > 1) {
+        ds_printf(DS_LEV_VER, "Found multiple control members (%d)", num_members);
+        return 0;
+    }
+
+    num_members = 0;
     for (i = 0; (member = ver_data_members[i]); i++)
         if (findMember(deb, member))
-            break;
-    if (!member) {
+            num_members++;
+
+    if (!num_members) {
         ds_printf(DS_LEV_VER, "Missing archive data member, checked:");
         for (i = 0; (member = ver_data_members[i]); i++)
             ds_printf(DS_LEV_VER, "    %s", member);
+        return 0;
+    }
+
+    if (num_members > 1) {
+        ds_printf(DS_LEV_VER, "Found multiple data members (%d)", num_members);
         return 0;
     }
 

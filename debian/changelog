@@ -1,3 +1,10 @@
+debsig-verify (0.28+b3+pexip24u7) pexip; urgency=medium
+
+  * Do more verification of signed debs - check for extra control and
+    data members.
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Mon, 07 Apr 2025 12:22:48 +0100
+
 debsig-verify (0.28+b3+pexip24u6) pexip; urgency=medium
 
   * Add an alternative strategy for verification: checksum signing
