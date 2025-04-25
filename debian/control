@@ -18,7 +18,7 @@ Build-Depends:
 # We need the agent for the test suite as we are handling a secret keyring.
  gpg-agent <!nocheck> | gnupg-agent <!nocheck> | sqop <!nocheck> | sq <!nocheck>,
  libmd-dev,
-XS-Pexip-Upstream: http://deb.debian.org/debian/ bookworm
+XS-Pexip-Upstream: http://deb.debian.org/debian/ trixie
 
 Package: debsig-verify
 Architecture: any
