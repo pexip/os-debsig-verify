@@ -61,9 +61,9 @@ Building from source
 The minimum software required to configure and build debsig-verify from a
 tarball is:
 
-  C89 compiler
+  C99 compiler
   GNU make
-  pkg-config
+  pkgconf
   libdpkg-dev
   libexpat1-dev
 

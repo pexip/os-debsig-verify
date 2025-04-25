@@ -183,4 +183,3 @@ AT_CHECK([mkdir -p policies/$TESTKEYID
 cp -a $TESTPOLICIES/$TESTFPRID/* policies/$TESTKEYID
 $DEBSIG --policies-dir policies --use-policy nameid.pol debsig_1.0.deb], [14], [ignore])
 AT_CLEANUP()
-

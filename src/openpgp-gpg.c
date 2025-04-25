@@ -265,6 +265,8 @@ gpg_getKeyID(const char *keyring, const char *match_id)
 
     if (ret == NULL) {
 	ds_printf(DS_LEV_DEBUG, "        getKeyID: failed for %s", match_id);
+        /* If we did not find any match release any parsed fingerprint. */
+        free(fpr);
     } else {
 	ds_printf(DS_LEV_DEBUG, "        getKeyID: mapped %s -> %s", match_id, ret);
     }
@@ -377,9 +379,7 @@ gpg_getSigKeyID(struct dpkg_ar *deb, const char *name)
     else
 	ds_printf(DS_LEV_DEBUG, "        getSigKeyID: got %s for %s key", ret, name);
 
-    if (ret)
-      return strdup(ret);
-    return NULL;
+    return ret;
 }
 
 static int
@@ -394,7 +394,7 @@ gpg_sigVerify(const char *keyring, const char *data, const char *sig)
     if (pid == 0) {
         struct command cmd;
 
-	if (DS_LEV_DEBUG < ds_debug_level) {
+        if (ds_debug_level > DS_LEV_DEBUG) {
 	    close(0); close(1); close(2);
 	}
 
