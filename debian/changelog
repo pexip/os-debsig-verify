@@ -1,3 +1,9 @@
+debsig-verify (0.33+pexip25u1) pexip-trixie; urgency=medium
+
+  * Initial trixie build
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Tue, 29 Apr 2025 22:30:15 +0100
+
 debsig-verify (0.33) unstable; urgency=medium
 
   * Build system:
